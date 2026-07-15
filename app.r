@@ -1,5 +1,9 @@
 
+
 library(shiny)
+##Upload up to 50 MB
+options(shiny.maxRequestSize = 50 * 1024^2)
+
 
 # Define UI for application that draws a histogram
 ui <- navbarPage(
@@ -74,11 +78,28 @@ server <- function(input, output, session) {
    output$table<- renderTable({
      req(df())
      head(df())
-   })
+   }, bordered = TRUE)
   ##Get a summary of 
     output$info<- renderPrint({
-      req(input$var_sum)
-      summary(df()[[input$var_sum]])
+      req(df(),input$var_sum)
+      x<-df()[[input$var_sum]]
+      if(is.character(x)){
+        x<- as.factor(x)
+      }
+      if(is.factor(x)){
+        cat("Frequency Table\n\n")
+        print(table(x, useNA = "ifany"))
+      } else if ((is.numeric(x)|| is.integer(x))&& 
+                 length(unique(na.omit(x)))<=10){
+        x<- factor(x)
+        cat("Frequency Table\n\n")
+        print(table(x, useNA = "ifany"))
+      } else if(is.numeric(x)|| is.integer(x)){
+        cat("Numerical Summary\n\n")
+        print(summary(x))
+      } else {
+        cat("Unsupported Variable Type")
+      }
     })
   
   
