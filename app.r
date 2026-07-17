@@ -1,7 +1,8 @@
 
-
 library(shiny)
 library(DT)
+library(ggplot2)
+library(dplyr)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -34,9 +35,21 @@ ui <- navbarPage(
       )
     )
   ),
-  tabPanel(
-    "Survey Summary",
-    plotOutput("summary")
+  tabPanel("Wave Comparison",
+    sidebarLayout(
+      sidebarPanel(
+        selectInput("Wave", "Select Wave(s):",
+                    choices = NULL,
+                    multiple = TRUE),
+        selectizeInput("variable", "Select Variable:",
+                    choices = NULL)
+      ),
+      mainPanel(
+        h4("Wave Trends"),
+        plotOutput("stackedPlot")
+      )
+    )
+    
   ),
   tabPanel(
     "Compare Waves",
@@ -128,8 +141,40 @@ server <- function(input, output, session) {
       cat("Unsupported Variable Type")
     }
   })
-  
-  
+  ##Creating the wave and variable comparison charts 
+  observe({
+    req(df())
+    updateSelectInput(
+      session = session,
+      inputId = "Wave",
+      choices = levels(as.factor(df()$Wave)),
+      selected = levels(as.factor(df()$Wave))
+    )
+    updateSelectizeInput(
+      session = session,
+      inputId = "variable",
+      choices = setdiff(names(df()), c("Wave", "MonthYear", "IDNO"))
+    )
+  })
+  output$stackedPlot<- renderPlot({
+    req(df(), input$Wave, input$variable)
+    
+    datawave<- df()%>%
+      filter(Wave %in% input$Wave)
+    datawave$response<- as.factor(datawave[[input$variable]])
+    
+    plotdf<- datawave %>%
+      group_by(Wave, response)%>%
+      summarise(n= n(), .groups = "drop")%>%
+      group_by(Wave) %>%
+      mutate(proportion = n/sum(n))
+    
+    ggplot(plotdf, aes(x= Wave, y = proportion, fill = response))+
+      geom_bar(stat = "identity", position = "fill")+
+      labs(x = "Wave", y= "Proportion",
+           fill = input$variable)+ 
+      theme_classic()
+  })
   
   
   }
