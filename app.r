@@ -1,4 +1,3 @@
-
 library(shiny)
 library(DT)
 library(ggplot2)
@@ -41,8 +40,16 @@ ui <- navbarPage(
         selectInput("Wave", "Select Wave(s):",
                     choices = NULL,
                     multiple = TRUE),
+        hr(),
         selectizeInput("variable", "Select Variable:",
-                    choices = NULL)
+                    choices = NULL),
+        hr(),
+        radioButtons(
+          inputId = "chart_type",
+          label = "Select Graph Type",
+          choices = c("Stacked Bar Graph" = "bar", "Line Graph"= "line"),
+          selected = "bar"
+        )
       ),
       mainPanel(
         h4("Wave Trends"),
@@ -71,37 +78,36 @@ server <- function(input, output, session) {
   ## Add the reactive element so that you can upload file
   df <- reactive({
     req(input$file)
-    data<- read.csv(
+    data <- read.csv(
       input$file$datapath,
       stringsAsFactors = FALSE
     )
     expected_col_names <- c("Wave", "MonthYear")
     given_col_names <- names(data)
-    
-    if(all(expected_col_names %in% given_col_names)) {
+
+    if (all(expected_col_names %in% given_col_names)) {
       showModal(
         modalDialog(
           title = "Success",
           p(paste(
-            "Correct File Uploaded. File contains the following columns:", 
+            "Correct File Uploaded. File contains the following columns:",
             paste(expected_col_names, collapse = ", ")
           ))
         )
       )
-      
     } else {
       showModal(
         modalDialog(
           title = "Error",
           p(paste(
-            "Incorrect File Uploaded. Please make sure your file contains the following columns:", 
+            "Incorrect File Uploaded. Please make sure your file contains the following columns:",
             paste(expected_col_names, collapse = ", ")
           ))
         )
       )
     }
     data
-    })
+  })
   observe({
     req(df())
     updateSelectizeInput(
@@ -115,11 +121,11 @@ server <- function(input, output, session) {
     req(df())
     datatable(
       head(df(), 100),
-      options= list(pageLength = 10, scrollX = TRUE),
-      selection = list(target= 'column')
+      options = list(pageLength = 10, scrollX = TRUE),
+      selection = list(target = "column")
     )
   })
-  ## Get a summary of variables 
+  ## Get a summary of variables
   output$info <- renderPrint({
     req(df(), input$var_sum)
     x <- df()[[input$var_sum]]
@@ -141,7 +147,7 @@ server <- function(input, output, session) {
       cat("Unsupported Variable Type")
     }
   })
-  ##Creating the wave and variable comparison charts 
+  ## Creating the wave and variable comparison charts
   observe({
     req(df())
     updateSelectInput(
@@ -156,28 +162,41 @@ server <- function(input, output, session) {
       choices = setdiff(names(df()), c("Wave", "MonthYear", "IDNO"))
     )
   })
-  output$stackedPlot<- renderPlot({
-    req(df(), input$Wave, input$variable)
-    
-    datawave<- df()%>%
+  output$stackedPlot <- renderPlot({
+    req(df(), input$Wave, input$variable, input$chart_type)
+    ## Identify wave and response variable
+    datawave <- df() %>%
       filter(Wave %in% input$Wave)
-    datawave$response<- as.factor(datawave[[input$variable]])
-    
-    plotdf<- datawave %>%
-      group_by(Wave, response)%>%
-      summarise(n= n(), .groups = "drop")%>%
+    datawave$response <- as.factor(datawave[[input$variable]])
+
+    plotdf <- datawave %>%
+      group_by(Wave, response) %>%
+      summarise(n = n(), .groups = "drop") %>%
       group_by(Wave) %>%
-      mutate(proportion = n/sum(n))
-    
-    ggplot(plotdf, aes(x= Wave, y = proportion, fill = response))+
-      geom_bar(stat = "identity", position = "fill")+
-      labs(x = "Wave", y= "Proportion",
-           fill = input$variable)+ 
-      theme_classic()
+      mutate(proportion = n / sum(n))
+
+    if (input$chart_type == "bar") {
+      ggplot(plotdf, aes(x = Wave, y = proportion, fill = response)) +
+        geom_bar(stat = "identity", position = "fill") +
+        labs(
+          x = "Wave", y = "Proportion",
+          fill = input$variable
+        ) +
+        theme_classic()
+    } else if (input$chart_type == "line") {
+      ggplot(plotdf, aes(x = Wave, y = proportion, color = response, group = response)) +
+        geom_line(linewidth = 1) +
+        geom_point(size = 2) +
+        labs(
+          x = "Wave",
+          y = "Proportion",
+          color = input$variable
+        ) +
+        theme_classic()
+    }
+    ## create stacked bar plot of responses by wave and  line graph 
   })
-  
-  
-  }
+}
 
 # Run the application
 shinyApp(ui = ui, server = server)
