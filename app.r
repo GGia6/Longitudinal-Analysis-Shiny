@@ -64,8 +64,29 @@ ui <- navbarPage(
   ),
   tabPanel(
     "Statistical Analysis",
-    verbatimTextOutput("static")
-  ),
+    sidebarLayout(
+      sidebarPanel(
+        selectInput(
+          "bayes_waveA",
+          "WaveA:",
+          choices = NULL
+        ),
+        selectInput("bayes_waveB",
+                    "WaveB:",
+                    choices = NULL),
+        selectizeInput(
+        "bayes_variable",
+        "Binary Variable: ",
+        choices = NULL),
+        actionButton("run_bayes", "Run Bayseian Analysis" )),
+      mainPanel(
+        h4("Posterior Summary"),
+        tableOutput("bayes_summary"),
+        hr(),
+        h4("comparison"),
+        verbatimTextOutput("bayes_results"))
+      )
+    ),
   tabPanel(
     "Dashboard",
     dataTableOutput("dashboard")
@@ -194,8 +215,51 @@ server <- function(input, output, session) {
         ) +
         theme_classic()
     }
-    ## create stacked bar plot of responses by wave and  line graph 
+    ## create stacked bar plot of responses by wave, as well as line graph, include more plot types later suhc as box or scatterplot
   })
+  ##update inputs for stat analysis 
+  ## Stat analysis to code for binary variables 
+  observe({
+    req(df())
+   
+     updateSelectInput(
+      session = session,
+      inputId = "bayes_waveA",
+      choices = sort(unique(df()$Wave)))
+     updateSelectInput(
+       session = session,
+       inputId = "bayes_waveB",
+       choices = sort(unique(df()$Wave)))
+     binary_vars<- names(df())[sapply(df(), function(x){
+       detect_var(x)== "binary var"
+     })]
+     
+     updateSelectizeInput(
+       session = session,
+       inputId = "bayes_variable",
+       choices = binary_vars
+     )})
+  
+  bayes_results<- eventReactive(input$run_bayes, {
+    req(input$bayes_waveA,
+        input$bayes_waveB,
+        input$bayes_variable)
+    result<-bayes_binaryvar(
+      data = df(),
+      wave_var = "Wave",
+      outcome_var = input$bayes_variable,
+      waveA = input$bayes_waveA,
+      WaveB = input$bayes_waveB
+    )
+    print(result)
+    
+    result
+  })
+  output$bayes_summary<- renderTable({
+    req(bayes_results())
+    bayes_results()$summary
+  })
+  ##End of binary analysis code excluding the text comparisons 
 }
 
 # Run the application
