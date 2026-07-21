@@ -1,3 +1,4 @@
+source("Functions.R")
 library(shiny)
 library(DT)
 library(ggplot2)
@@ -24,7 +25,15 @@ ui <- navbarPage(
           inputId = "var_sum",
           label = "Select Variable",
           choices = NULL
-        )
+        ),
+        hr(),
+        selectizeInput(inputId = "wave_filter", 
+                    label = "Select Wave", 
+                    choices = NULL,
+                    multiple = TRUE)
+                   
+                    
+        
       ),
       mainPanel(
         h4("Dataset Information"),
@@ -47,7 +56,7 @@ ui <- navbarPage(
         radioButtons(
           inputId = "chart_type",
           label = "Select Graph Type",
-          choices = c("Stacked Bar Graph" = "bar", "Line Graph"= "line"),
+          choices = c("Stacked Bar Graph" = "bar", "Line Graph"= "line", "Grouped Bar Graph"= "box"),
           selected = "bar"
         )
       ),
@@ -137,14 +146,30 @@ server <- function(input, output, session) {
       choices = names(df())
     )
   })
+  
+  observe({
+    req(df())
+    wave_choices<- c("All Waves"= "all", sort(unique(df()$Wave)))
+    updateSelectizeInput(session = session,
+                         inputId = "wave_filter",
+                         choices = wave_choices,
+                         selected = "all")
+  })
   ## The element to preview the file on the data upload page
   output$table <- renderDT({
     req(df())
+    req(input$wave_filter)
+    
+    filtered_df<- if (input$wave_filter == "all"){
+      df()
+    } else{
+      df() %>% filter(Wave == input$wave_filter)
+    }
     datatable(
-      head(df(), 100),
+      head(filtered_df, 100),
       options = list(pageLength = 10, scrollX = TRUE),
       selection = list(target = "column")
-    )
+    ) 
   })
   ## Get a summary of variables
   output$info <- renderPrint({
@@ -183,8 +208,10 @@ server <- function(input, output, session) {
       choices = setdiff(names(df()), c("Wave", "MonthYear", "IDNO"))
     )
   })
-  output$stackedPlot <- renderPlot({
+#Code for plots and graphs  
+   output$stackedPlot <- renderPlot({
     req(df(), input$Wave, input$variable, input$chart_type)
+    
     ## Identify wave and response variable
     datawave <- df() %>%
       filter(Wave %in% input$Wave)
@@ -213,6 +240,11 @@ server <- function(input, output, session) {
           y = "Proportion",
           color = input$variable
         ) +
+        theme_classic()
+    }else if (input$chart_type == "box"){
+      ggplot(plotdf, aes(x = Wave, y = proportion, fill = factor(response))) +
+        geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+        labs(x = "Wave", y = "Proportion of Response", fill = "Response") +
         theme_classic()
     }
     ## create stacked bar plot of responses by wave, as well as line graph, include more plot types later suhc as box or scatterplot
@@ -260,6 +292,31 @@ server <- function(input, output, session) {
     bayes_results()$summary
   })
   ##End of binary analysis code excluding the text comparisons 
+  ##Text outputs interpreting comparison
+  
+  output$bayes_results<-renderPrint({
+    
+    probs<-paste("Posterior probability that", input$bayes_waveB,
+        "has a larger success proportion than", input$bayes_waveA,
+        ":", bayes_results()$Probability_greater)
+   
+    
+   
+    
+    meandiff<-paste("Posterior mean difference:", bayes_results()$mean_difference)
+    
+
+    
+    confi<-paste("95% Credible Interval:", bayes_results()$lower_diff, ",",
+          bayes_results()$upper_diff)
+    
+    cat(probs, "\n")
+    cat(meandiff, "\n")
+    cat(confi, "\n")
+    
+  })
+  #End of text output code 
+  
 }
 
 # Run the application
