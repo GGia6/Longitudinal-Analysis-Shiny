@@ -95,6 +95,102 @@ bayes_binaryvar<- function(data,
   
 }
 
+## categorical variables function
+
+library(ordinal)
+library(gofcat)
+ordinal_analysis <- function(data,
+                             outcome,
+                             wave = "Wave",
+                             missing_codes = c(98, 99)) {
+  data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
+
+  data[[outcome]] <- factor(data[[outcome]], ordered = TRUE)
+  
+  data[[wave]] <- factor(data[[wave]])
+  
+
+  model <- ordinal::clm(
+    reformulate(wave, response = outcome),
+    data = data
+  )
+
+  coef_table <- as.data.frame(coef(summary(model)))
+  coef_table <- coef_table[!grepl("\\|", rownames(coef_table)), ]
+
+  results_table <- data.frame(
+    Predictor = rownames(coef_table),
+    Estimate = round( coef_table[, "Estimate"],4),
+    Odds_Ratio = round( exp(coef_table[, "Estimate"]),4),
+    Std_Error = round( coef_table[, "Std. Error"],4),
+    z_value =round(  coef_table[, "z value"],4),
+    p_value =  round(coef_table[, "Pr(>|z|)"],6),
+    row.names = NULL
+  )
+
+  list(
+    model = model,
+    results = results_table
+  )
+}
+
+## Proportional odds assumption check function for ordinal logistic regression of cat vars. 
+library(gofcat)
+brant_func<- function(data,
+                      outcome,
+                      wave = "Wave",
+                      missing_codes = c(98, 99)) {
+  data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
+  
+  data[[outcome]] <- factor(data[[outcome]], ordered = TRUE)
+  
+  data[[wave]] <- factor(data[[wave]])
+  
+  
+  model <- ordinal::clm(
+    reformulate(wave, response = outcome),
+    data = data
+  )
+  model_null<- ordinal::clm(
+    reformulate(wave, response = 1),
+    data = data
+  )
+  
+  
+  brant_results<- gofcat::brant.test(model)
+  
+  brant_data <- data.frame(
+    term    = c("Omnibus", brant_results$vnames),
+    chi_sq  = brant_results$chisq,
+    df      = brant_results$df,
+    p_value = pchisq(brant_results$chisq, brant_results$df, lower.tail = FALSE)
+  )
+  
+  list(brant_data = brant_data)
+  
+}
+
+
+glm_analysis<- function(data,
+                        outcome,
+                        wave = "Wave",
+                        missing_codes = c(98, 99)) {
+  data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
+  
+  data[[outcome]] <- factor(data[[outcome]], ordered = TRUE)
+  
+  data[[wave]] <- factor(data[[wave]])
+  
+  
+  model <- VGAM::vglm(
+    reformulate(wave, response = outcome),
+    data = data,
+    family = cumulative(parallel = TRUE, reverse = TRUE)
+  )
+  result<-summary(model)
+  
+  list(result = result)
+  }
 
 
 
