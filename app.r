@@ -1,8 +1,17 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    https://shiny.posit.co/
+#
 source("Functions.R")
 library(shiny)
 library(DT)
 library(ggplot2)
 library(dplyr)
+library(ordinal)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -37,10 +46,10 @@ ui <- navbarPage(
       ),
       mainPanel(
         h4("Dataset Information"),
-        DTOutput("table"),
+        verbatimTextOutput("info"),
         hr(),
-        verbatimTextOutput("info")
-      )
+        DTOutput("table")
+        )
     )
   ),
   tabPanel("Wave Comparison",
@@ -68,10 +77,6 @@ ui <- navbarPage(
     
   ),
   tabPanel(
-    "Compare Waves",
-    plotOutput("plot")
-  ),
-  tabPanel(
     "Statistical Analysis",
     sidebarLayout(
       sidebarPanel(
@@ -87,18 +92,43 @@ ui <- navbarPage(
         "bayes_variable",
         "Binary Variable: ",
         choices = NULL),
-        actionButton("run_bayes", "Run Bayseian Analysis" )),
+        actionButton("run_bayes", "Run Bayseian Analysis" ),
+        hr(),
+        selectizeInput(
+          "cat_variable",
+          "Select Categorical Variable:",
+          choices = NULL)
+        ),
       mainPanel(
         h4("Posterior Summary"),
         tableOutput("bayes_summary"),
         hr(),
         h4("comparison"),
-        verbatimTextOutput("bayes_results"))
+        verbatimTextOutput("bayes_results")
+        )
       )
     ),
   tabPanel(
-    "Dashboard",
-    dataTableOutput("dashboard")
+    "Categorical Analysis",
+    sidebarLayout(
+      
+      sidebarPanel(
+        
+        selectInput(
+          "analysis_var",
+          "Select Survey Question",
+          choices = NULL)
+        
+      ),
+      
+      mainPanel( 
+        DT::dataTableOutput("ordinal_table"),
+        
+        verbatimTextOutput("analysis_summary")
+        
+      )
+    )
+    
   )
 )
 
@@ -112,7 +142,7 @@ server <- function(input, output, session) {
       input$file$datapath,
       stringsAsFactors = FALSE
     )
-    expected_col_names <- c("Wave", "MonthYear")
+    expected_col_names <- c("Wave", "IDNO")
     given_col_names <- names(data)
 
     if (all(expected_col_names %in% given_col_names)) {
@@ -205,7 +235,7 @@ server <- function(input, output, session) {
     updateSelectizeInput(
       session = session,
       inputId = "variable",
-      choices = setdiff(names(df()), c("Wave", "MonthYear", "IDNO"))
+      choices = setdiff(names(df()), c("Wave", "IDNO"))
     )
   })
 #Code for plots and graphs  
@@ -315,7 +345,57 @@ server <- function(input, output, session) {
     cat(confi, "\n")
     
   })
-  #End of text output code 
+  #End of text output code for binary var 
+  
+  ## Start of categorical analysis 
+  #Update categorical selectuon
+  observe({
+    
+    req(df())
+    
+    ordinal_vars <- names(df())[sapply(df(), function(x) {
+      detect_var(x) == "categorical var"
+    })]
+    updateSelectInput(
+      session =session,
+      inputId = "analysis_var",
+      choices = ordinal_vars
+    )
+    
+  })
+  ##get categorical results 
+  ordinal_results <- reactive({
+    
+    req(df())
+    req(input$analysis_var)
+    
+    
+    ordinal_analysis(
+      data = df(),
+      outcome = input$analysis_var
+    )
+    
+  })
+  ## make summary page of estimates and odds ratios 
+  output$ordinal_table <- DT::renderDataTable({
+    
+    req(ordinal_results())
+    
+    ordinal_results()$results
+    
+  },
+  options = list(
+    pageLength = 10,
+    scrollX = TRUE
+  ))
+  
+  output$analysis_summary <- renderPrint({
+    
+    req(ordinal_results())
+    
+    summary(ordinal_results()$model)
+    
+  })
   
 }
 
