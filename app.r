@@ -132,10 +132,7 @@ ui <- navbarPage(
           htmlOutput("brant_message")),
         conditionalPanel(
           condition = "input.result== 'context'",
-          htmlOutput("interpret")),
-        conditionalPanel(
-          condition = "input.result== 'predict_plot'",
-          plotOutput("predi_plot"))
+          htmlOutput("interpret"))
       )
     )),
   ## VGLM Analysis
@@ -153,9 +150,29 @@ ui <- navbarPage(
       mainPanel(
         DT::dataTableOutput("glm_datatable"), 
         htmlOutput("glm_assum"))
-    )        
-    
-  )
+      )
+    ),
+  tabPanel("Intepretations",
+           sidebarLayout(
+             sidebarPanel(
+               selectInput(
+                 inputId = "test_type",
+                 label = "Select working test type",
+                 choices = c("Ordinal Analysis"= "OA", "Generalized Linear Model" = "GLM")),
+               hr(),
+               radioButtons(inputId = "interprets",
+                            label = "Select Interpretation Type",
+                            choices = c("Predictive plot"= "predi_plot",
+                                        "Text Interpretations" = "text_int"))),
+             mainPanel(
+               conditionalPanel(condition = "input.interprets == 'predi_plot'",
+                                plotOutput("predict_plot")),
+               conditionalPanel(condition = "input.interprets == 'text_int'",
+                                htmlOutput("takeaways"))
+             )
+             )
+           )
+  
 )
 
 
@@ -477,6 +494,20 @@ server <- function(input, output, session) {
       tags$p(glm_results()$Error)
     )
   })
+  
+  ##Print predictive plot on interpret tab 
+  
+  output$predict_plot <- renderPlot({
+    req(input$test_type)
+    if (input$test_type == "OA") {
+      req(ordinal_results())
+      oa_pred_plot(model = ordinal_results()$model, data = df())
+    } else {
+      req(glm_results())
+      glm_pred_plot(model = glm_results()$model, data = df())
+    }
+  })
+  
   
 }
 
