@@ -109,7 +109,6 @@ ordinal_analysis <- function(data,
   
   data[[wave]] <- factor(data[[wave]])
   
-
   model <- ordinal::clm(
     reformulate(wave, response = outcome),
     data = data
@@ -117,7 +116,7 @@ ordinal_analysis <- function(data,
 
   coef_table <- as.data.frame(coef(summary(model)))
   coef_table <- coef_table[!grepl("\\|", rownames(coef_table)), ]
-
+##Put da results in a datatable in the shiny 
   results_table <- data.frame(
     Predictor = rownames(coef_table),
     Estimate = round( coef_table[, "Estimate"],4),
@@ -152,7 +151,7 @@ brant_func<- function(data,
     data = data
   )
   model_null<- ordinal::clm(
-    reformulate(wave, response = 1),
+    reformulate("1", response = outcome),
     data = data
   )
   
@@ -166,8 +165,18 @@ brant_func<- function(data,
     p_value = pchisq(brant_results$chisq, brant_results$df, lower.tail = FALSE)
   )
   
-  list(brant_data = brant_data)
-  
+  if (any(brant_data$p_value <= 0.05, na.rm = TRUE)) {
+    list(
+      Error  = "Proportional odds assumption was not met for one or more terms, can't determine Wave difference.
+      Move to Generalized categorical analysis.",
+      brant_data = brant_data
+    )
+  } else {
+    list(
+      Error = "All assumptions met, interpretations can be drawn from the data." ,
+      brant_data = brant_data
+    )
+  }
 }
 
 
@@ -185,13 +194,92 @@ glm_analysis<- function(data,
   model <- VGAM::vglm(
     reformulate(wave, response = outcome),
     data = data,
-    family = cumulative(parallel = TRUE, reverse = TRUE)
+    family = cumulative(parallel = FALSE, reverse = TRUE)
   )
   result<-summary(model)
   
-  list(result = result)
+  coefs<- result@coef3
+  
+  vglm_table<- data.frame( 
+    Predictor = rownames(coefs),
+    Estimate = round( coefs[, "Estimate"],4),
+    Odds_Ratio = round( exp(coefs[, "Estimate"]),4),
+    Std_Error = round( coefs[, "Std. Error"],4),
+    z_value =round(  coefs[, "z value"],4),
+    p_value =  round(coefs[, "Pr(>|z|)"],6),
+    row.names = NULL
+    
+  )
+  
+  ##check assumptions within function so if std errors blow up quasi-seperation violated
+  
+  if (any(vglm_table$Std_Error > 3, na.rm = TRUE)) {
+    list(
+      model = model,
+      Error  = "Data reflects extreme uncertainty, Wave differences cannot be interpreted or concluded.",
+      vglm_table = vglm_table
+    )
+  } else {
+    list(
+      model = model,
+      Error = "All assumptions met, interpretations can be drawn from the data." ,
+      vglm_table = vglm_table
+    )}
   }
 
 
+#MAking prediction plot function for ordinal analysis 
+
+# OA plot funcy
+oa_pred_plot <- function(model, data, wave_var = "Wave") {
+  new_data <- data.frame(Wave = factor(sort(unique(data[[wave_var]])), levels = levels(as.factor(data[[wave_var]]))))
+  names(new_data) <- wave_var
+  
+  probs <- predict(model, newdata = new_data, type = "prob")
+  
+  plot_df <- as.data.frame(probs)
+  plot_df$Wave <- new_data[[wave_var]]
+  
+  plot_df_long <- tidyr::pivot_longer(
+    plot_df, cols = -Wave,
+    names_to = "Response_Category", values_to = "Probability"
+  )
+  
+  ggplot(plot_df_long, aes(x = Wave, y = Probability,
+                           color = Response_Category, group = Response_Category)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2.5) +
+    labs(title = "Predicted Probabilities Across Waves",
+         x = "Wave", y = "Predicted Probability", color = "Response Category") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+
+#GLM plot func
+
+glm_pred_plot <- function(model, data, wave_var = "Wave") {
+  new_data <- data.frame(Wave = factor(sort(unique(data[[wave_var]])), levels = levels(as.factor(data[[wave_var]]))))
+  names(new_data) <- wave_var
+  
+  probs <- predict(model, newdata = new_data, type = "response")
+  
+  plot_df <- as.data.frame(probs)
+  plot_df$Wave <- new_data[[wave_var]]
+  
+  plot_df_long <- tidyr::pivot_longer(
+    plot_df, cols = -Wave,
+    names_to = "Response_Category", values_to = "Probability"
+  )
+  
+  ggplot(plot_df_long, aes(x = Wave, y = Probability,
+                           color = Response_Category, group = Response_Category)) +
+    geom_line(linewidth = 1) +
+    geom_point(shape =17 ,size = 2.5) +
+    labs(title = "Predicted Probabilities Across Waves",
+         x = "Wave", y = "Predicted Probability", color = "Response Category") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
 
 
