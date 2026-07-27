@@ -12,6 +12,8 @@ library(DT)
 library(ggplot2)
 library(dplyr)
 library(ordinal)
+library(gofcat)
+library(periscope2)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -76,40 +78,9 @@ ui <- navbarPage(
     )
     
   ),
+  #ordinal analy tab 
   tabPanel(
-    "Statistical Analysis",
-    sidebarLayout(
-      sidebarPanel(
-        selectInput(
-          "bayes_waveA",
-          "WaveA:",
-          choices = NULL
-        ),
-        selectInput("bayes_waveB",
-                    "WaveB:",
-                    choices = NULL),
-        selectizeInput(
-        "bayes_variable",
-        "Binary Variable: ",
-        choices = NULL),
-        actionButton("run_bayes", "Run Bayseian Analysis" ),
-        hr(),
-        selectizeInput(
-          "cat_variable",
-          "Select Categorical Variable:",
-          choices = NULL)
-        ),
-      mainPanel(
-        h4("Posterior Summary"),
-        tableOutput("bayes_summary"),
-        hr(),
-        h4("comparison"),
-        verbatimTextOutput("bayes_results")
-        )
-      )
-    ),
-  tabPanel(
-    "Categorical Analysis",
+    "Ordinal Categorical Analysis",
     sidebarLayout(
       
       sidebarPanel(
@@ -117,7 +88,11 @@ ui <- navbarPage(
         selectInput(
           "analysis_var",
           "Select Survey Question",
-          choices = NULL)
+          choices = NULL),
+       
+         selectInput("Wave_cat", "Select Wave(s) to Analyze",
+                    choices = NULL,
+                    multiple = TRUE)
         
       ),
       
@@ -128,6 +103,57 @@ ui <- navbarPage(
         
       )
     )
+    
+  ),
+  ## Brant test and interpretaions and plot
+  tabPanel(
+    "Results",
+    sidebarLayout(
+      sidebarPanel(
+        radioButtons(inputId = "result",
+                    label = "Select Analysis Result",
+                    choices = c("Brant Test" = "brant",
+                                "Test Interpretation" = "context",
+                                "Predictive Plot"= "predict_plot")),
+        hr(),
+        selectizeInput(inputId = "assum_var",
+                       label = "Select Variable to Check Assumptions",
+                       choices = NULL),
+        downloadablePlotUI(id = "predi_1",
+                           downloadtypes = c("png", "csv"),
+                           download_hovertext = "Download Here!",
+                           height = "500px",
+                           btn_halign = "left")
+      ),
+      mainPanel(
+        conditionalPanel(
+          condition = "input.result == 'brant'",
+          DT::dataTableOutput("brant_table"),
+          htmlOutput("brant_message")),
+        conditionalPanel(
+          condition = "input.result== 'context'",
+          htmlOutput("interpret")),
+        conditionalPanel(
+          condition = "input.result== 'predict_plot'",
+          plotOutput("predi_plot"))
+      )
+    )),
+  ## VGLM Analysis
+  tabPanel( "Generalized Categorical Analysis",
+    sidebarLayout(
+      sidebarPanel(
+        selectizeInput(inputId = "glm_var",
+                    label = "Select Survey Question",
+                    choices = NULL),
+        hr(),
+        selectInput(inputId = "glm_wave",
+                    label = "Select Waves to Analyze",
+                    choices = NULL,
+                    multiple = TRUE)),
+      mainPanel(
+        DT::dataTableOutput("glm_datatable"), 
+        htmlOutput("glm_assum"))
+    )        
     
   )
 )
@@ -179,24 +205,20 @@ server <- function(input, output, session) {
   
   observe({
     req(df())
-    wave_choices<- c("All Waves"= "all", sort(unique(df()$Wave)))
+   
     updateSelectizeInput(session = session,
                          inputId = "wave_filter",
-                         choices = wave_choices,
-                         selected = "all")
+                         choices = levels(as.factor(df()$Wave)),
+                         selected = levels(as.factor(df()$Wave)))
   })
   ## The element to preview the file on the data upload page
   output$table <- renderDT({
     req(df())
     req(input$wave_filter)
     
-    filtered_df<- if (input$wave_filter == "all"){
-      df()
-    } else{
-      df() %>% filter(Wave == input$wave_filter)
-    }
+    filtered_df<- df() %>% filter(Wave %in% input$wave_filter)
     datatable(
-      head(filtered_df, 100),
+      head(filtered_df, 1000),
       options = list(pageLength = 10, scrollX = TRUE),
       selection = list(target = "column")
     ) 
@@ -280,73 +302,6 @@ server <- function(input, output, session) {
     ## create stacked bar plot of responses by wave, as well as line graph, include more plot types later suhc as box or scatterplot
   })
   ##update inputs for stat analysis 
-  ## Stat analysis to code for binary variables 
-  observe({
-    req(df())
-   
-     updateSelectInput(
-      session = session,
-      inputId = "bayes_waveA",
-      choices = sort(unique(df()$Wave)))
-     updateSelectInput(
-       session = session,
-       inputId = "bayes_waveB",
-       choices = sort(unique(df()$Wave)))
-     binary_vars<- names(df())[sapply(df(), function(x){
-       detect_var(x)== "binary var"
-     })]
-     
-     updateSelectizeInput(
-       session = session,
-       inputId = "bayes_variable",
-       choices = binary_vars
-     )})
-  
-  bayes_results<- eventReactive(input$run_bayes, {
-    req(input$bayes_waveA,
-        input$bayes_waveB,
-        input$bayes_variable)
-    result<-bayes_binaryvar(
-      data = df(),
-      wave_var = "Wave",
-      outcome_var = input$bayes_variable,
-      waveA = input$bayes_waveA,
-      WaveB = input$bayes_waveB
-    )
-    print(result)
-    
-    result
-  })
-  output$bayes_summary<- renderTable({
-    req(bayes_results())
-    bayes_results()$summary
-  })
-  ##End of binary analysis code excluding the text comparisons 
-  ##Text outputs interpreting comparison
-  
-  output$bayes_results<-renderPrint({
-    
-    probs<-paste("Posterior probability that", input$bayes_waveB,
-        "has a larger success proportion than", input$bayes_waveA,
-        ":", bayes_results()$Probability_greater)
-   
-    
-   
-    
-    meandiff<-paste("Posterior mean difference:", bayes_results()$mean_difference)
-    
-
-    
-    confi<-paste("95% Credible Interval:", bayes_results()$lower_diff, ",",
-          bayes_results()$upper_diff)
-    
-    cat(probs, "\n")
-    cat(meandiff, "\n")
-    cat(confi, "\n")
-    
-  })
-  #End of text output code for binary var 
-  
   ## Start of categorical analysis 
   #Update categorical selectuon
   observe({
@@ -362,16 +317,26 @@ server <- function(input, output, session) {
       choices = ordinal_vars
     )
     
+    updateSelectInput(
+      session = session,
+      inputId = "Wave_cat",
+      choices = levels(as.factor(df()$Wave)),
+      selected = levels(as.factor(df()$Wave))
+    )
+    
   })
-  ##get categorical results 
+  ##get ordinal analysis  results 
   ordinal_results <- reactive({
     
     req(df())
     req(input$analysis_var)
+    req(input$Wave_cat)
     
+    datawave_cat <- df() %>%
+      filter(Wave %in% input$Wave_cat)
     
     ordinal_analysis(
-      data = df(),
+      data = datawave_cat,
       outcome = input$analysis_var
     )
     
@@ -395,6 +360,122 @@ server <- function(input, output, session) {
     
     summary(ordinal_results()$model)
     
+  })
+  ## Start of assumptions analysis 
+  
+  ##Get categorical variables asinputs 
+  observe({
+    
+    req(df())
+    
+    ord_assum_vars <- names(df())[sapply(df(), function(x) {
+      detect_var(x) == "categorical var"
+    })]
+    updateSelectInput(
+      session =session,
+      inputId = "assum_var",
+      choices = ord_assum_vars
+    )
+    
+  })
+  
+  
+  ##get brant test results 
+ 
+  brant_test<- reactive({
+    
+    req(df())
+    
+    req(input$assum_var)
+    
+    brant_func(data = df(),
+               outcome = input$assum_var)
+  })
+  
+  ## Output brant testresults 
+  
+  output$brant_table<- DT::renderDataTable({
+    req(brant_test())
+    
+    brant_test()$brant_data
+    
+  }, 
+  options = list( pageLength = 10, scrollX = TRUE))
+  
+  output$brant_message<- renderUI({
+    req(brant_test())
+    
+    tags$div(
+      tags$br(),
+      tags$p(brant_test()$Error)
+    )
+  })
+  ## Done with brant results 
+  
+  
+  ## VGLM Analysis reactive for sidebar
+  observe({
+    
+    req(df())
+    
+    ordinal_vars <- names(df())[sapply(df(), function(x) {
+      detect_var(x) == "categorical var"
+    })]
+    updateSelectInput(
+      session =session,
+      inputId = "glm_var",
+      choices = ordinal_vars
+    )
+    
+    updateSelectInput(
+      session = session,
+      inputId = "glm_wave",
+      choices = levels(as.factor(df()$Wave)),
+      selected = levels(as.factor(df()$Wave))
+    )
+    
+  })
+  
+  ## Doing the vglm analysis func
+  
+  glm_results <- reactive({
+    
+    req(df())
+    req(input$glm_var)
+    req(input$glm_wave)
+    
+    datawave_cat <- df() %>%
+      filter(Wave %in% input$glm_wave)
+    
+    glm_analysis(
+      data = datawave_cat,
+      outcome = input$glm_var
+    )
+    
+  })
+  
+  ##Gettign vglm table 
+  
+  output$glm_datatable <- DT::renderDataTable({
+    
+    req(glm_results())
+    
+    glm_results()$vglm_table
+    
+  },
+  options = list(
+    pageLength = 10,
+    scrollX = TRUE
+  ))
+  
+  ## Printing the vglm assumption underneath the table 
+  output$glm_assum<- renderUI({
+    req(glm_results())
+    
+    tags$div(
+      tags$br(),
+      tags$p(glm_results()$Error)
+    )
   })
   
 }
