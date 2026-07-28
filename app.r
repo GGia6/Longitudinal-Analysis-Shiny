@@ -1,11 +1,3 @@
-#
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    https://shiny.posit.co/
-#
 source("Functions.R")
 library(shiny)
 library(DT)
@@ -14,6 +6,8 @@ library(dplyr)
 library(ordinal)
 library(gofcat)
 library(periscope2)
+library(VGAM)
+library(haven)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -29,7 +23,7 @@ ui <- navbarPage(
       sidebarPanel(
         fileInput("file", "Upload Survey ",
           multiple = FALSE,
-          accept = c(".csv", ".xlsx")
+          accept = c(".sav", ".csv") ## copy and  change to .csv
         ),
         hr(),
         selectizeInput(
@@ -54,6 +48,7 @@ ui <- navbarPage(
         )
     )
   ),
+  ## Wave comparison tab 
   tabPanel("Wave Comparison",
     sidebarLayout(
       sidebarPanel(
@@ -98,8 +93,9 @@ ui <- navbarPage(
       
       mainPanel( 
         DT::dataTableOutput("ordinal_table"),
-        
-        verbatimTextOutput("analysis_summary")
+        verbatimTextOutput("analysis_summary"),
+        hr(),
+        h4("Proportional Odds Assumption Check")
         
       )
     )
@@ -181,9 +177,8 @@ server <- function(input, output, session) {
   ## Add the reactive element so that you can upload file
   df <- reactive({
     req(input$file)
-    data <- read.csv(
-      input$file$datapath,
-      stringsAsFactors = FALSE
+    data <- read_sav( ## read_sav from haven package 
+      input$file$datapath
     )
     expected_col_names <- c("Wave", "IDNO")
     given_col_names <- names(data)
@@ -225,21 +220,23 @@ server <- function(input, output, session) {
    
     updateSelectizeInput(session = session,
                          inputId = "wave_filter",
-                         choices = levels(as.factor(df()$Wave)),
-                         selected = levels(as.factor(df()$Wave)))
+                         choices = levels(as_factor(df()$Wave)),
+                         selected = levels(as_factor(df()$Wave)))
   })
   ## The element to preview the file on the data upload page
   output$table <- renderDT({
     req(df())
     req(input$wave_filter)
     
-    filtered_df<- df() %>% filter(Wave %in% input$wave_filter)
+    filtered_df <- df() %>%
+      filter(as_factor(Wave) %in% input$wave_filter) %>%
+      mutate(across(where(haven::is.labelled), haven::as_factor))
+    
     datatable(
       head(filtered_df, 1000),
       options = list(pageLength = 10, scrollX = TRUE),
-      selection = list(target = "column")
-    ) 
-  })
+      selection = list(target = "column"))
+    })
   ## Get a summary of variables
   output$info <- renderPrint({
     req(df(), input$var_sum)
@@ -363,13 +360,14 @@ server <- function(input, output, session) {
     
     req(ordinal_results())
     
-    ordinal_results()$results
+    datatable( ordinal_results()$results,
+               options = list(
+                 pagelength = 10,
+                 scrollX = TRUE
+               ))%>% 
+      formatStyle("p_value", backgroundColor = styleInterval(0.05, c("yellow", "white")))
     
-  },
-  options = list(
-    pageLength = 10,
-    scrollX = TRUE
-  ))
+  })
   
   output$analysis_summary <- renderPrint({
     
@@ -500,10 +498,12 @@ server <- function(input, output, session) {
   output$predict_plot <- renderPlot({
     req(input$test_type)
     if (input$test_type == "OA") {
-      req(ordinal_results())
+      req(ordinal_results(), input$Wave_cat)
+      filtered <- df() %>% filter(Wave %in% input$Wave_cat)
       oa_pred_plot(model = ordinal_results()$model, data = df())
     } else {
-      req(glm_results())
+      req(glm_results(), input$glm_wave)
+      filtered <- df() %>% filter(Wave %in% input$glm_wave)
       glm_pred_plot(model = glm_results()$model, data = df())
     }
   })
