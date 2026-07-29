@@ -104,8 +104,11 @@ ordinal_analysis <- function(data,
                              wave = "Wave",
                              missing_codes = c(98, 99)) {
   data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
-
-  data[[outcome]] <- factor(data[[outcome]], ordered = TRUE)
+  
+  data[[outcome]] <- factor(
+    haven::as_factor(data[[outcome]]),
+    ordered = TRUE
+  )
   
   data[[wave]] <- factor(data[[wave]])
   
@@ -113,10 +116,10 @@ ordinal_analysis <- function(data,
     reformulate(wave, response = outcome),
     data = data
   )
-
+  
   coef_table <- as.data.frame(coef(summary(model)))
   coef_table <- coef_table[!grepl("\\|", rownames(coef_table)), ]
-##Put da results in a datatable in the shiny 
+  ##Put da results in a datatable in the shiny 
   results_table <- data.frame(
     Predictor = rownames(coef_table),
     Estimate = round( coef_table[, "Estimate"],4),
@@ -126,13 +129,12 @@ ordinal_analysis <- function(data,
     p_value =  round(coef_table[, "Pr(>|z|)"],6),
     row.names = NULL
   )
-
+  
   list(
     model = model,
     results = results_table
   )
 }
-
 ## Proportional odds assumption check function for ordinal logistic regression of cat vars. 
 library(gofcat)
 brant_func<- function(data,
@@ -281,5 +283,13 @@ glm_pred_plot <- function(model, data, wave_var = "Wave") {
     theme_classic() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
+
+
+
+
+
+
+
+
 
 
