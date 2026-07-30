@@ -8,12 +8,14 @@ library(gofcat)
 library(periscope2)
 library(VGAM)
 library(haven)
+library(bslib)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
 
 # Define UI for application that draws a histogram
 ui <- navbarPage(
+  theme = bs_theme(version = 5, bootswatch = "pulse"),
   title = "Survey Wave Dashy",
   
   # uploading the big wave merged csv files
@@ -21,6 +23,12 @@ ui <- navbarPage(
     "Data Upload",
     sidebarLayout(
       sidebarPanel(
+        tags$div(
+          style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+          tags$strong("Warning: "),
+          "This tool only accepts .sav files with a numeric unlabeled Wave column."
+        ),
+        hr(),
         fileInput("file", "Upload Survey ",
                   multiple = FALSE,
                   accept = c(".sav", ".csv") ## copy and  change to .csv
@@ -36,9 +44,6 @@ ui <- navbarPage(
                        label = "Select Wave", 
                        choices = NULL,
                        multiple = TRUE)
-        
-        
-        
       ),
       mainPanel(
         h4("Dataset Information"),
@@ -88,7 +93,19 @@ ui <- navbarPage(
         
         selectInput("Wave_cat", "Select Wave(s) to Analyze",
                     choices = NULL,
-                    multiple = TRUE)
+                    multiple = TRUE),
+        tags$div(
+          style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+          tags$strong("Warning: "),
+          "For model accuracy, deselect Wave(s) where survey question wasn't asked."
+        ),
+        hr(),
+        tags$div(
+          style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+          tags$strong("Note: "),
+          "Significant p-vals highlighted in gray. High Odds Ratios highlighted in orange. 
+                  Low Odds Ratios highlighted in blue."
+        )
         
       ),
       
@@ -112,7 +129,19 @@ ui <- navbarPage(
                 selectInput(inputId = "glm_wave",
                             label = "Select Waves to Analyze",
                             choices = NULL,
-                            multiple = TRUE)),
+                            multiple = TRUE),
+                tags$div(
+                  style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+                  tags$strong("Warning: "),
+                  "For model accuracy, deselect Wave(s) where survey question wasn't asked."
+                ),
+                hr(),
+                tags$div(
+                  style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+                  tags$strong("Note: "),
+                  "Significant p-vals highlighted in gray. High Odds Ratios highlighted in orange. 
+                  Low Odds Ratios highlighted in blue."
+                )),
               mainPanel(
                 DT::dataTableOutput("glm_datatable"),
                 hr(),
@@ -132,13 +161,18 @@ ui <- navbarPage(
                radioButtons(inputId = "interprets",
                             label = "Select Interpretation Type",
                             choices = c("Predictive plot"= "predi_plot",
-                                        "Text Interpretations" = "text_int"))),
+                                        "Text Interpretations" = "text_int")),
+               tags$div(
+                 style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+                 tags$strong("Note: "),
+                 "Text Interpretations exclude all Wave:Response pairs that aren't statistically significant."
+               )),
              mainPanel(
                conditionalPanel(condition = "input.interprets == 'predi_plot'",
-                                plotOutput("predict_plot"),
+                                plotOutput("predict_plot" , click = "plot_click"),
                                 downloadButton("downloadPlot", "Download Plot")),
                conditionalPanel(condition = "input.interprets == 'text_int'",
-                                htmlOutput("takeaways"))
+                                uiOutput("interpretation"))
              )
            )
   )
@@ -148,15 +182,14 @@ ui <- navbarPage(
 
 # Define server logic required to draw a histogram
 server <- function(input, output, session) {
-  ## Add the reactive element so that you can upload file
   df <- reactive({
     req(input$file)
-    data <- read_sav( ## read_sav from haven package 
+    data <- read_sav( ## read_sav from haven package
       input$file$datapath
     )
     expected_col_names <- c("Wave", "IDNO")
     given_col_names <- names(data)
-    
+
     if (all(expected_col_names %in% given_col_names)) {
       showModal(
         modalDialog(
@@ -183,43 +216,49 @@ server <- function(input, output, session) {
   ## Adding df labelled so that display tables and graphs can display labels
   df_labelled <- reactive({
     req(df())
-    
+
     df() %>%
       mutate(across(where(haven::is.labelled), haven::as_factor))
   })
-  
+
   observe({
     req(df())
     updateSelectizeInput(
       session = session,
       inputId = "var_sum",
-      choices = names(df()))
+      choices = names(df())
+    )
   })
-  
+
   observe({
     req(df())
-    
-    updateSelectizeInput(session = session,
-                         inputId = "wave_filter",
-                         choices = levels(as_factor(df()$Wave)),
-                         selected = levels(as_factor(df()$Wave)))
+
+    updateSelectizeInput(
+      session = session,
+      inputId = "wave_filter",
+      choices = levels(as_factor(df()$Wave)),
+      selected = levels(as_factor(df()$Wave))
+    )
   })
+  
+  
   ## The element to preview the file on the data upload page
   output$table <- renderDT({
     req(df())
     req(input$wave_filter)
-    
+
     filtered_df <- df() %>%
       filter(as_factor(Wave) %in% input$wave_filter) %>%
       mutate(across(where(haven::is.labelled), haven::as_factor))
-    
+
     datatable(
       head(filtered_df, 1000),
       extensions = "Buttons",
-      options = list(dom= "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"), pageLength = 10, scrollX = TRUE),
-      class = c("display","nowrap"),
+      options = list(dom = "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"), pageLength = 10, scrollX = TRUE),
+      class = c("display", "nowrap"),
       selection = list(target = "column"),
-      width = "400px")
+      width = "400px"
+    )
   })
   ## Get a summary of variables
   output$info <- renderPrint({
@@ -232,7 +271,7 @@ server <- function(input, output, session) {
       cat("Frequency Table\n\n")
       print(table(x, useNA = "ifany"))
     } else if ((is.numeric(x) || is.integer(x)) &&
-               length(unique(na.omit(x))) <= 10) {
+      length(unique(na.omit(x))) <= 10) {
       x <- factor(x)
       cat("Frequency Table\n\n")
       print(table(x, useNA = "ifany"))
@@ -258,23 +297,23 @@ server <- function(input, output, session) {
       choices = setdiff(names(df()), c("Wave", "IDNO"))
     )
   })
-  #Code for plots and graphs  
+  # Code for plots and graphs
   stackedPlot_reactive <- reactive({
     req(df(), input$Wave, input$variable, input$chart_type)
     datawave <- df_labelled() %>%
       filter(as_factor(Wave) %in% input$Wave)
     datawave$response <- datawave[[input$variable]]
-    
+
     plotdf <- datawave %>%
       group_by(Wave, response) %>%
       summarise(n = n(), .groups = "drop") %>%
       group_by(Wave) %>%
       mutate(proportion = n / sum(n))
-    
+
     if (input$chart_type == "bar") {
       ggplot(plotdf, aes(x = Wave, y = proportion, fill = response)) +
         geom_bar(stat = "identity", position = "fill") +
-        labs(
+        labs( title = "Wave Response Trend: Stacked Histogram",
           x = "Wave", y = "Proportion of Response",
           fill = input$variable
         ) +
@@ -283,191 +322,193 @@ server <- function(input, output, session) {
       ggplot(plotdf, aes(x = Wave, y = proportion, color = response, group = response)) +
         geom_line(linewidth = 1) +
         geom_point(size = 2) +
-        labs(
+        labs( title = "Wave Response Trend: Line Graph",
           x = "Wave",
           y = "Proportion of Response",
           color = input$variable
         ) +
         theme_classic()
-    }else if (input$chart_type == "box"){
+    } else if (input$chart_type == "box") {
       ggplot(plotdf, aes(x = Wave, y = proportion, fill = factor(response))) +
         geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-        labs(x = "Wave", y = "Proportion of Response", fill = "Response") +
+        labs( title = "Wave Response Trend: Grouped Bar Graph", 
+              x = "Wave", y = "Proportion of Response", fill = "Response") +
         theme_classic()
     }
     ## create stacked bar plot of responses by wave, as well as line graph, include more plot types later suhc as box or scatterplot
   })
-  
-  ##Download Stacked plot 
-  output$stackedPlot<- renderPlot({
+
+  ## Download Stacked plot
+  output$stackedPlot <- renderPlot({
     stackedPlot_reactive()
   })
-  
-  output$downloadStacked<- downloadHandler(
-    filename = function(){
-      paste0("stackedPlot_", input$chart_type, "_", Sys.Date(), ".png" )
+
+  output$downloadStacked <- downloadHandler(
+    filename = function() {
+      paste0("stackedPlot_", input$chart_type, "_", Sys.Date(), ".png")
     },
-    content = function(file){
-      ggsave(file, plot = stackedPlot_reactive(), device = "png", 
-             width = 8, height = 6, dpi = 300)
+    content = function(file) {
+      ggsave(file,
+        plot = stackedPlot_reactive(), device = "png",
+        width = 8, height = 6, dpi = 300
+      )
     }
   )
-  
-  ##update inputs for stat analysis 
-  
-  
-  ## Start of categorical analysis 
-  #Update categorical selectuon
+
+  ## update inputs for stat analysis
+
+
+  ## Start of categorical analysis
+  # Update categorical selectuon
   observe({
-    
     req(df())
-    
+
     ordinal_vars <- names(df())[sapply(df(), function(x) {
       detect_var(x) == "categorical var"
     })]
     updateSelectInput(
-      session =session,
+      session = session,
       inputId = "analysis_var",
       choices = ordinal_vars
     )
-    
+
     updateSelectInput(
       session = session,
       inputId = "Wave_cat",
       choices = levels(as.factor(df()$Wave)),
       selected = levels(as.factor(df()$Wave))
     )
-    
   })
-  ##get ordinal analysis  results 
+  ## get ordinal analysis  results
   ordinal_results <- reactive({
-    
     req(df())
     req(input$analysis_var)
     req(input$Wave_cat)
-    
+
     datawave_cat <- df() %>%
       filter(Wave %in% input$Wave_cat)
-    
+
     ordinal_analysis(
       data = datawave_cat,
       outcome = input$analysis_var
     )
-    
   })
-  ## make summary page of estimates and odds ratios 
+  ## make summary page of estimates and odds ratios
   output$ordinal_table <- DT::renderDataTable({
-    
     req(ordinal_results())
-    
-    datatable( ordinal_results()$results,
-               extensions = "Buttons",
-               options = list(dom= "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"),
-                              pagelength = 10,
-                              scrollX = TRUE
-               ))%>% 
-      formatStyle("p_value", backgroundColor = styleInterval(0.05, c("#8B0000", "white")))
-    
+
+    datatable(ordinal_results()$results,
+      extensions = "Buttons",
+      options = list(
+        dom = "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"),
+        pagelength = 10,
+        scrollX = TRUE
+      )
+    ) %>%
+      formatStyle("Odds_Ratio",
+                  backgroundColor = styleInterval(5, c("white", "#F8A798"))) %>%
+      formatStyle("p_value", backgroundColor = styleInterval(0.05, c("#BCBCBC", "white"))) %>%
+      formatStyle("Odds_Ratio", backgroundColor = styleInterval(0.40, c("#9FC7DE", "white")))
   })
-  
-  
+
+
   ## Start of assumptions analysis
-  
-  ##get brant test results 
-  
-  brant_test<- reactive({
-    
+
+  ## get brant test results
+
+  brant_test <- reactive({
     req(df())
-    
+
     req(input$analysis_var)
-    
-    brant_func(data = df(),
-               outcome = input$analysis_var)
+
+    brant_func(
+      data = df(),
+      outcome = input$analysis_var
+    )
   })
-  
+
   ## Output brant testresults at bottom of ord tab
-  
-  output$brant_message<- renderUI({
+
+  output$brant_message <- renderUI({
     req(brant_test())
-    
+
     tags$div(
       tags$br(),
       tags$p(brant_test()$Error)
     )
   })
-  ## Done with brant results 
-  
-  
+  ## Done with brant results
+
+
   ## VGLM Analysis reactive for sidebar
   observe({
-    
     req(df())
-    
+
     ordinal_vars <- names(df())[sapply(df(), function(x) {
       detect_var(x) == "categorical var"
     })]
     updateSelectInput(
-      session =session,
+      session = session,
       inputId = "glm_var",
       choices = ordinal_vars
     )
-    
+
     updateSelectInput(
       session = session,
       inputId = "glm_wave",
       choices = levels(as.factor(df()$Wave)),
       selected = levels(as.factor(df()$Wave))
     )
-    
   })
-  
+
   ## Doing the vglm analysis func
-  
+
   glm_results <- reactive({
-    
     req(df())
     req(input$glm_var)
     req(input$glm_wave)
-    
+
     datawave_cat <- df() %>%
       filter(Wave %in% input$glm_wave)
-    
+
     glm_analysis(
       data = datawave_cat,
       outcome = input$glm_var
     )
-    
   })
-  
-  ##Gettign vglm table 
-  
+
+  ## Gettign vglm table
+
   output$glm_datatable <- DT::renderDataTable({
-    
     req(glm_results())
-    
+
     datatable(glm_results()$vglm_table,
-              extensions = "Buttons",
-              options = list(dom= "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"),
-                             pagelength = 10,
-                             scrollX = TRUE
-              ))%>% 
-      formatStyle("Odds_Ratio", 
-                  backgroundColor = styleInterval(5, c("white", "#8B0000")))
+      extensions = "Buttons",
+      options = list(
+        dom = "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"),
+        pagelength = 10,
+        scrollX = TRUE
+      )
+    ) %>%
+      formatStyle("Odds_Ratio",
+        backgroundColor = styleInterval(5, c("white", "#F8A798"))) %>%
+      formatStyle("p_value", backgroundColor = styleInterval(0.05, c("#BCBCBC", "white"))) %>%
+      formatStyle("Odds_Ratio", backgroundColor = styleInterval(0.40, c("#9FC7DE", "white")))
   })
-  
-  
-  ## Printing the vglm assumption underneath the table 
-  output$glm_assum<- renderUI({
+
+
+  ## Printing the vglm assumption underneath the table
+  output$glm_assum <- renderUI({
     req(glm_results())
-    
+
     tags$div(
       tags$br(),
       tags$p(glm_results()$Error)
     )
   })
-  
-  ##Print predictive plot on interpret tab 
-  
+
+  ## Print predictive plot on interpret tab
+
   predict_plot_reactive <- reactive({
     req(input$test_type)
     if (input$test_type == "OA") {
@@ -480,20 +521,111 @@ server <- function(input, output, session) {
       glm_pred_plot(model = glm_results()$model, data = filtered)
     }
   })
-  
-  output$predict_plot<- renderPlot({
+
+  output$predict_plot <- renderPlot({
     predict_plot_reactive()
   })
-  
-  output$downloadPlot<- downloadHandler(
-    filename = function(){
-      paste0("predict_plot_", input$test_type, "_", Sys.Date(), ".png" )
+  ## Add download option for the predictive plot
+  output$downloadPlot <- downloadHandler(
+    filename = function() {
+      paste0("predict_plot_", input$test_type, "_", Sys.Date(), ".png")
     },
-    content = function(file){
-      ggsave(file, plot = predict_plot_reactive(), device = "png", 
-             width = 8, height = 6, dpi = 300)
+    content = function(file) {
+      ggsave(file,
+        plot = predict_plot_reactive(), device = "png",
+        width = 8, height = 6, dpi = 300
+      )
     }
   )
+  ## Start of text interpretations code
+
+  interpretation_reactive <- reactive({
+    req(input$test_type)
+
+    if (input$test_type == "OA") {
+      req(ordinal_results())
+
+      res <- ordinal_results()$results
+      sig <- res %>% filter(p_value < 0.05)
+
+      if (nrow(sig) == 0) {
+        return("No statistically significant wave effects were found.")
+      }
+
+      top_row <- sig[which.max(sig$Odds_Ratio), ]
+      bottom_row <- sig[which.min(sig$Odds_Ratio), ]
+
+      interpret_row <- function(row) {
+        or <- round(row$Odds_Ratio, 2)
+        wave <- row$Predictor
+        if (or < 1) {
+          pct <- round((1 - or) * 100, 1)
+          sprintf(
+            "In %s, the odds of being in a higher response category are %.2f times the baseline wave — the odds of being in a higher ordinal category (i.e. levels >2 or >3) decrease by about %.1f%%.",
+            wave, or, pct
+          )
+        } else {
+          pct <- round((or - 1) * 100, 1)
+          sprintf(
+            "In %s, the odds of being in a higher response category are %.2f times the baseline wave — the odds of being in a higher ordinal category (i.e. levels >2 or >3) increase by about %.1f%%.",
+            wave, or, pct
+          )
+        }
+      }
+
+      if (nrow(sig) == 1) {
+        interpret_row(sig)
+      } else {
+        paste0(
+          "<b>Largest Significant Effect:</b> ", interpret_row(top_row), "<br><br>",
+          "<b>Smallest Significant Effect:</b> ", interpret_row(bottom_row)
+        )
+      }
+    } else {
+      req(glm_results())
+      tab <- glm_results()$vglm_table
+      sig <- tab %>% filter(p_value < 0.05)
+
+      if (nrow(sig) == 0) {
+        return("No statistically significant wave effects were found.")
+      }
+
+      top_row <- sig[which.max(sig$Odds_Ratio), ]
+      bottom_row <- sig[which.min(sig$Odds_Ratio), ]
+
+      interpret_row <- function(row, direction) {
+        or <- round(row$Odds_Ratio, 2)
+        wave <- row$Predictor
+        trend <- if (direction == "higher") "a sharp decline" else "a sharp increase"
+        sprintf(
+          "In %s, the odds of choosing a  response level greater than this one were %.2f times %s than the baseline — 
+          by this Wave there was %s in people choosing this as their response.",
+          wave, or, direction, trend
+        )
+      }
+
+      if (nrow(sig) == 1) {
+        interpret_row(sig, if (sig$Odds_Ratio >= 1) "higher" else "lower")
+      } else {
+        paste0(
+          "<b>Highest Significant Odds Ratio:</b> ", interpret_row(top_row, "higher"), "<br><br>",
+          "<b>Lowest Significant Odds Ratio:</b> ", interpret_row(bottom_row, "lower")
+        )
+      }
+    }
+  })
+##End of interpretations code
+
+  ## Print interpretation in the tab 
+  output$interpretation <- renderUI({
+    HTML(interpretation_reactive())
+  })
+  
+  
+
+  
+ 
+  
   
 }
 
