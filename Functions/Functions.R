@@ -188,7 +188,10 @@ glm_analysis<- function(data,
                         missing_codes = c(98, 99)) {
   data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
   
-  data[[outcome]] <- factor(data[[outcome]], ordered = TRUE)
+  data[[outcome]] <- factor(
+    haven::as_factor(data[[outcome]]),
+    ordered = TRUE
+  )
   
   data[[wave]] <- factor(data[[wave]])
   
