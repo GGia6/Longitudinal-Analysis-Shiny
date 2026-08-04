@@ -8,15 +8,39 @@ library(gofcat)
 library(periscope2)
 library(VGAM)
 library(haven)
+library(scales)
 library(bslib)
+library(viridis)
+library(shinycssloaders)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
+##Make company theme colors for shiny 
+theme <- bs_theme(
+  version = 5,
+  bootswatch = "flatly",
+  
+  # Brand colors
+  primary   = "#D7191C",  # Company Red
+  secondary = "#858789",  # Dark Gray
+  success   = "#9FC7DE",  # Blue
+  info      = "#F9A25A",  # Orange
+  warning   = "#F8A798",  # Light Coral
+  danger    = "#D7191C",
+  
+  # Background
+  bg = "#FFFFFF",
+  fg = "#2B2B2B",
+  
+  # Fonts
+  base_font = font_google("Open Sans"),
+  heading_font = font_google("Open Sans")
+)
 
 # Define UI for application that draws a histogram
 ui <- navbarPage(
-  theme = bs_theme(version = 5, bootswatch = "pulse"),
-  title = "Survey Wave Dashy",
+  theme = theme,
+  title = "Survey Wave Explorer",
   
   # uploading the big wave merged csv files
   tabPanel(
@@ -49,7 +73,7 @@ ui <- navbarPage(
         h4("Dataset Information"),
         verbatimTextOutput("info"),
         hr(),
-        DTOutput("table")
+        withSpinner(DTOutput("table"), type = 8, color = "#D7191C")
       )
     )
   ),
@@ -73,8 +97,12 @@ ui <- navbarPage(
              ),
              mainPanel(
                h4("Wave Trends"),
-               plotOutput("stackedPlot"),
-               downloadButton("downloadStacked", "Download Plot")
+               withSpinner(plotOutput("stackedPlot"), type = 8, color = "#D7191C"),
+               downloadButton("downloadStacked", "Download Plot"),
+               br(),
+               hr(),
+               h4("Missingness Summary"),
+               DTOutput("missingSummary")
              )
            )
            
@@ -97,7 +125,7 @@ ui <- navbarPage(
         tags$div(
           style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
           tags$strong("Warning: "),
-          "For model accuracy, deselect Wave(s) where survey question wasn't asked."
+          "For model accuracy, use Wave Comparison to deselect Wave(s) where survey question wasn't asked."
         ),
         hr(),
         tags$div(
@@ -110,7 +138,7 @@ ui <- navbarPage(
       ),
       
       mainPanel( 
-        DT::dataTableOutput("ordinal_table"),
+        withSpinner(DT::dataTableOutput("ordinal_table"), type = 8, color = "#D7191C"),
         hr(),
         h4("Proportional Odds Assumption Check"),
         htmlOutput("brant_message")
@@ -133,7 +161,7 @@ ui <- navbarPage(
                 tags$div(
                   style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
                   tags$strong("Warning: "),
-                  "For model accuracy, deselect Wave(s) where survey question wasn't asked."
+                  "For model accuracy, use Wave Comparison to deselect Wave(s) where survey question wasn't asked."
                 ),
                 hr(),
                 tags$div(
@@ -143,7 +171,7 @@ ui <- navbarPage(
                   Low Odds Ratios highlighted in blue."
                 )),
               mainPanel(
-                DT::dataTableOutput("glm_datatable"),
+                withSpinner(DT::dataTableOutput("glm_datatable"), type = 8, color = "#D7191C"),
                 hr(),
                 h4("Error Assumption Check"),
                 htmlOutput("glm_assum"))
@@ -169,8 +197,11 @@ ui <- navbarPage(
                )),
              mainPanel(
                conditionalPanel(condition = "input.interprets == 'predi_plot'",
-                                plotOutput("predict_plot" , click = "plot_click"),
-                                downloadButton("downloadPlot", "Download Plot")),
+                                withSpinner(plotOutput("predict_plot"), type = 8, color = "#D7191C"),
+                                downloadButton("downloadPlot", "Download Plot"),
+                                hr(),
+                                h4("Predicted Probability Metrics per Wave"),
+                                DT::dataTableOutput("predict_table")),
                conditionalPanel(condition = "input.interprets == 'text_int'",
                                 uiOutput("interpretation"))
              )
@@ -254,7 +285,24 @@ server <- function(input, output, session) {
     datatable(
       head(filtered_df, 1000),
       extensions = "Buttons",
-      options = list(dom = "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"), pageLength = 10, scrollX = TRUE),
+      options = list(dom = "Bfrtip", buttons = list(
+        list(
+          extend = "copy",
+          exportOptions = list(modifier = list(page = "all"))
+        ),
+        list(
+          extend = "csv",
+          exportOptions = list(modifier = list(page = "all"))
+        ),
+        list(
+          extend = "excel",
+          exportOptions = list(modifier = list(page = "all"))
+        ),
+        list(
+          extend = "pdf",
+          exportOptions = list(modifier = list(page = "all"))
+        )
+      ), pageLength = 10, scrollX = TRUE),
       class = c("display", "nowrap"),
       selection = list(target = "column"),
       width = "400px"
@@ -288,8 +336,8 @@ server <- function(input, output, session) {
     updateSelectInput(
       session = session,
       inputId = "Wave",
-      choices = levels(as.factor(df()$Wave)),
-      selected = levels(as.factor(df()$Wave))
+      choices = levels(haven::as_factor(df()$Wave)),
+      selected = levels(haven::as_factor(df()$Wave))
     )
     updateSelectizeInput(
       session = session,
@@ -298,6 +346,10 @@ server <- function(input, output, session) {
     )
   })
   # Code for plots and graphs
+  
+  okabe_ito <- c("#F8A798","#F9A25A",  "#D7191C", "#9FC7DE",
+                 "#2B7EB6", "#25418c", "#BCBCBC", "#858789")
+  
   stackedPlot_reactive <- reactive({
     req(df(), input$Wave, input$variable, input$chart_type)
     datawave <- df_labelled() %>%
@@ -313,6 +365,7 @@ server <- function(input, output, session) {
     if (input$chart_type == "bar") {
       ggplot(plotdf, aes(x = Wave, y = proportion, fill = response)) +
         geom_bar(stat = "identity", position = "fill") +
+        scale_fill_manual(values = okabe_ito)+
         labs( title = "Wave Response Trend: Stacked Histogram",
           x = "Wave", y = "Proportion of Response",
           fill = input$variable
@@ -322,6 +375,7 @@ server <- function(input, output, session) {
       ggplot(plotdf, aes(x = Wave, y = proportion, color = response, group = response)) +
         geom_line(linewidth = 1) +
         geom_point(size = 2) +
+        scale_color_manual(values = okabe_ito) + 
         labs( title = "Wave Response Trend: Line Graph",
           x = "Wave",
           y = "Proportion of Response",
@@ -331,6 +385,7 @@ server <- function(input, output, session) {
     } else if (input$chart_type == "box") {
       ggplot(plotdf, aes(x = Wave, y = proportion, fill = factor(response))) +
         geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+        scale_fill_manual(values = okabe_ito)+
         labs( title = "Wave Response Trend: Grouped Bar Graph", 
               x = "Wave", y = "Proportion of Response", fill = "Response") +
         theme_classic()
@@ -354,8 +409,68 @@ server <- function(input, output, session) {
       )
     }
   )
-
-  ## update inputs for stat analysis
+  ## Make missingness summary at the bottom of the plots
+  missingSummary_reactive <- reactive({
+    req(input$variable, input$Wave)
+    
+    datawave <- df() %>%
+      filter(haven::as_factor(Wave) %in% input$Wave)%>%
+      mutate(Wave = haven::as_factor(Wave)) 
+    
+    var_vals <- datawave[[input$variable]]
+    
+    # Pull the value-label mapping (e.g. c("Refused (vol.)" = 98, "Don't know (vol.)" = 99))
+    val_labels <- attr(var_vals, "labels")
+    
+    # Dynamically find whatever numeric code corresponds to each missing label,
+    # regardless of whether it's 8/9 or 98/99 for this particular variable
+    refused_code  <- val_labels[grepl("refus", names(val_labels), ignore.case = TRUE)]
+    dontknow_code <- val_labels[grepl("don.t know|dk", names(val_labels), ignore.case = TRUE)]
+    
+    var_num <- as.numeric(haven::zap_labels(var_vals))
+    
+    datawave %>%
+      mutate(.varnum = var_num) %>%
+      group_by(Wave) %>%
+      summarise(
+        n_total     = n(),
+        n_na        = sum(is.na(.varnum)),
+        n_refused   = sum(.varnum %in% refused_code, na.rm = TRUE),
+        n_dontknow  = sum(.varnum %in% dontknow_code, na.rm = TRUE),
+        n_missing   = n_na + n_refused + n_dontknow,
+        pct_missing = round(100 * n_missing / n_total, 1)
+      )
+  })
+  
+  output$missingSummary <- renderDT({
+   
+     ms <- missingSummary_reactive()
+     
+     ms_display <- ms %>%
+       mutate(
+         `% Missing` = paste0(pct_missing, "%"),
+         `Refused (98)` = n_refused,
+         `Don't Know (99)` = n_dontknow,
+         `True NA` = n_na,
+         `Total N` = n_total
+       ) %>%
+       select(Wave, `% Missing`, `True NA`, `Refused (98)`, `Don't Know (99)`, `Total N`)
+     
+     datatable(
+       ms_display,
+       rownames = FALSE,
+       options = list(
+         dom = "t",          # just the table, no search/pagination clutter
+         pageLength = -1,     # show all rows
+         ordering = TRUE
+       ),
+       class = "display"
+     ) %>%
+       formatStyle(
+         "% Missing",
+         backgroundColor = styleInterval(c(10, 25), c("#e8f5e9", "#fff3e0", "#ffebee")) # green/yellow/red by severity
+       )
+  })
 
 
   ## Start of categorical analysis
@@ -375,8 +490,8 @@ server <- function(input, output, session) {
     updateSelectInput(
       session = session,
       inputId = "Wave_cat",
-      choices = levels(as.factor(df()$Wave)),
-      selected = levels(as.factor(df()$Wave))
+      choices = levels(haven::as_factor(df()$Wave)),
+      selected = levels(haven::as_factor(df()$Wave))
     )
   })
   ## get ordinal analysis  results
@@ -384,10 +499,10 @@ server <- function(input, output, session) {
     req(df())
     req(input$analysis_var)
     req(input$Wave_cat)
-
+    
     datawave_cat <- df() %>%
-      filter(Wave %in% input$Wave_cat)
-
+      filter(haven::as_factor(Wave) %in% input$Wave_cat)
+    
     ordinal_analysis(
       data = datawave_cat,
       outcome = input$analysis_var
@@ -400,8 +515,25 @@ server <- function(input, output, session) {
     datatable(ordinal_results()$results,
       extensions = "Buttons",
       options = list(
-        dom = "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"),
-        pagelength = 10,
+        dom = "Bfrtip",  buttons = list(
+          list(
+            extend = "copy",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "csv",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "excel",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "pdf",
+            exportOptions = list(modifier = list(page = "all"))
+          )
+        ),
+        pageLength = 10,
         scrollX = TRUE
       )
     ) %>%
@@ -456,8 +588,8 @@ server <- function(input, output, session) {
     updateSelectInput(
       session = session,
       inputId = "glm_wave",
-      choices = levels(as.factor(df()$Wave)),
-      selected = levels(as.factor(df()$Wave))
+      choices = levels(haven::as_factor(df()$Wave)),
+      selected = levels(haven::as_factor(df()$Wave))
     )
   })
 
@@ -469,7 +601,7 @@ server <- function(input, output, session) {
     req(input$glm_wave)
 
     datawave_cat <- df() %>%
-      filter(Wave %in% input$glm_wave)
+      filter(haven::as_factor(Wave) %in% input$glm_wave)
 
     glm_analysis(
       data = datawave_cat,
@@ -485,7 +617,24 @@ server <- function(input, output, session) {
     datatable(glm_results()$vglm_table,
       extensions = "Buttons",
       options = list(
-        dom = "Bfrtip", buttons = c("csv", "excel", "pdf", "copy"),
+        dom = "Bfrtip", buttons = list(
+          list(
+            extend = "copy",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "csv",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "excel",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "pdf",
+            exportOptions = list(modifier = list(page = "all"))
+          )
+        ),
         pagelength = 10,
         scrollX = TRUE
       )
@@ -521,6 +670,7 @@ server <- function(input, output, session) {
       glm_pred_plot(model = glm_results()$model, data = filtered)
     }
   })
+  
 
   output$predict_plot <- renderPlot({
     predict_plot_reactive()
@@ -621,11 +771,80 @@ server <- function(input, output, session) {
     HTML(interpretation_reactive())
   })
   
+  predict_table_reactive <- reactive({
+    req(input$test_type)
+    
+    if (input$test_type == "OA") {
+      req(ordinal_results(), input$Wave_cat)
+      filtered <- df_labelled() %>% filter(Wave %in% input$Wave_cat)
+      model <- ordinal_results()$model
+      pred_type <- "prob"
+    } else {
+      req(glm_results(), input$glm_wave)
+      filtered <- df_labelled() %>% filter(Wave %in% input$glm_wave)
+      model <- glm_results()$model
+      pred_type <- "response"
+    }
+    
+    wave_var <- "Wave"
+    
+    new_data <- data.frame(
+      Wave = factor(sort(unique(filtered[[wave_var]])),
+                    levels = levels(as.factor(filtered[[wave_var]])))
+    )
+    names(new_data) <- wave_var
+    
+    probs <- predict(model, newdata = new_data, type = pred_type)
+    
+    if (is.null(dim(probs))) {
+      probs_df <- data.frame(Probability = probs)
+    } else {
+      probs_df <- as.data.frame(probs)
+    }
+    
+    probs_df$Wave <- new_data[[wave_var]]
+    
+    probs_df %>%
+      tidyr::pivot_longer(cols = -Wave,
+                          names_to = "Response_Category",
+                          values_to = "Probability") %>%
+      tidyr::pivot_wider(names_from = Response_Category,
+                         values_from = Probability) %>%
+      dplyr::mutate(dplyr::across(-Wave, ~ scales::percent(.x, accuracy = 0.1)))
+  })
+  
+  output$predict_table <- DT::renderDataTable({
+    
+     datatable(predict_table_reactive(), 
+               extensions = "Buttons",
+               options = list(
+                 dom = "Bfrtip", buttons = list(
+                   list(
+                     extend = "copy",
+                     exportOptions = list(modifier = list(page = "all"))
+                   ),
+                   list(
+                     extend = "csv",
+                     exportOptions = list(modifier = list(page = "all"))
+                   ),
+                   list(
+                     extend = "excel",
+                     exportOptions = list(modifier = list(page = "all"))
+                   ),
+                   list(
+                     extend = "pdf",
+                     exportOptions = list(modifier = list(page = "all"))
+                   )
+                 ),
+                 pagelength = 10,
+                 scrollX = TRUE
+               ))
+    })
+  
+  
   
 
-  
- 
-  
+
   
 }
 
