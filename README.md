@@ -1,28 +1,29 @@
-# Longitudinal Analysis: Shiny App
+# Survey Wave Explorer: Shiny App
 
 
 ## Project Overview
-This project is a Shiny Web Application aimed at exploring trends in responses through multiple survey waves. The goal; identify significant changes or differences between survey waves, evaluate the significance of those differences, create downloadable visualizations showcasing trend differences, and lastly provide some automatic insights. 
+This project is a Shiny Web Application aimed at exploring trends in responses through multiple survey waves. The goal; identify significant changes or differences between survey waves, evaluate the significance of those differences, create downloadable visualizations showcasing trend differences, and lastly provide some automated insights to aid user interpretation. 
 
 ---
 
 ## Data & Methods
-The project was tested on available D3 survey response data, using snippets of wave merge files. 
+The project was tested on available D3 survey response data, using snippets of wave merge files. The survey files were all different modes to ensure accuracy, therefore the models included were tested on both CAPI (Computer Assisted Personal Interview) and CATI (Computer Assisted Telephone Interview) surveys. 
 
-Statistical methods applied include:
--  Bayseian Test?
-- Chi-sq
 
 These methods are implemented within interactive Shiny applications to allow users to explore results dynamically.
 
 ---
 
 ## Tools & Technologies
-- **R** (tidyverse, Shiny, ggplot2, gganimate, gifski)
-- **Statistical methods:** 
+- **R** 
+- **Statistical methods:** Ordinal Logistic Regression with Brant Test Assumption check, Vector Generalized Linear Modeling, Exploratory Data Analysis
 - **GitHub** (code and project documentation)
-
+- **Packages**: shiny, dplyr, tidyverse, brms, emmeans, ggplot2, ordinal, gofcat, periscope2, VGAM, haven, scales, bslib, shinycssloaders, DT
 ---
 
 ## Project Components
-
+- app.r (Ui/Server Components)
+- Functions.R (Helper Functions to be downloaded BEFORE app rendering)
+- TestFuncs.R (Function Testing script)
+- Survey Wave Explorer Notes.pdf (Process/ Choices Documentation)
+ 
