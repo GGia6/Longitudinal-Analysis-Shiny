@@ -10,7 +10,7 @@ This project is a Shiny Web Application aimed at exploring trends in responses t
 The project was tested on available D3 survey response data, using snippets of wave merge files. The survey files were all different modes to ensure accuracy, therefore the models included were tested on both CAPI (Computer Assisted Personal Interview) and CATI (Computer Assisted Telephone Interview) surveys. 
 
 
-These methods are implemented within interactive Shiny applications to allow users to explore results dynamically.
+These methods are implemented within an interactive Shiny application to allow users to explore results dynamically.
 
 ---
 
