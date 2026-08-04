@@ -102,7 +102,7 @@ library(gofcat)
 ordinal_analysis <- function(data,
                              outcome,
                              wave = "Wave",
-                             missing_codes = c(98, 99)) {
+                             missing_codes = c(8,9, 98, 99)) {
   data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
   
   data[[outcome]] <- factor(
@@ -110,7 +110,7 @@ ordinal_analysis <- function(data,
     ordered = TRUE
   )
   
-  data[[wave]] <- factor(data[[wave]])
+  data[[wave]] <- haven::as_factor(data[[wave]])
   
   model <- ordinal::clm(
     reformulate(wave, response = outcome),
@@ -135,12 +135,15 @@ ordinal_analysis <- function(data,
     results = results_table
   )
 }
+
+
+
 ## Proportional odds assumption check function for ordinal logistic regression of cat vars. 
 library(gofcat)
 brant_func<- function(data,
                       outcome,
                       wave = "Wave",
-                      missing_codes = c(98, 99)) {
+                      missing_codes = c(8,9, 98, 99)) {
   data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
   
   data[[outcome]] <- factor(data[[outcome]], ordered = TRUE)
@@ -185,7 +188,7 @@ brant_func<- function(data,
 glm_analysis<- function(data,
                         outcome,
                         wave = "Wave",
-                        missing_codes = c(98, 99)) {
+                        missing_codes = c(8,9, 98, 99)) {
   data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
   
   data[[outcome]] <- factor(
@@ -193,7 +196,7 @@ glm_analysis<- function(data,
     ordered = TRUE
   )
   
-  data[[wave]] <- factor(data[[wave]])
+  data[[wave]] <- haven::as_factor(data[[wave]])
   
   
   model <- VGAM::vglm(
@@ -235,14 +238,25 @@ glm_analysis<- function(data,
 
 #MAking prediction plot function for ordinal analysis 
 
+likert_colors <- c(
+   "#C8102E",  # D3 Red
+   "#F2A48F",  # Shell
+   "#A6A9AC",  # Pebble
+   "#A9CCE3",  # Mist
+  "#1F5C99"   # Faded-Blue
+)
+
+
 # OA plot funcy
 oa_pred_plot <- function(model, data, wave_var = "Wave") {
   new_data <- data.frame(Wave = factor(sort(unique(data[[wave_var]])), levels = levels(as.factor(data[[wave_var]]))))
+  
   names(new_data) <- wave_var
   
   probs <- predict(model, newdata = new_data, type = "prob")
   
   plot_df <- as.data.frame(probs)
+ 
   plot_df$Wave <- new_data[[wave_var]]
   
   plot_df_long <- tidyr::pivot_longer(
@@ -254,6 +268,7 @@ oa_pred_plot <- function(model, data, wave_var = "Wave") {
                            color = Response_Category, group = Response_Category)) +
     geom_line(linewidth = 1) +
     geom_point(size = 2.5) +
+    scale_color_manual(values = likert_colors) +
     labs(title = "Predicted Probabilities Across Waves",
          x = "Wave", y = "Predicted Probability", color = "Response Category") +
     theme_classic() +
@@ -264,12 +279,15 @@ oa_pred_plot <- function(model, data, wave_var = "Wave") {
 #GLM plot func
 
 glm_pred_plot <- function(model, data, wave_var = "Wave") {
+  
   new_data <- data.frame(Wave = factor(sort(unique(data[[wave_var]])), levels = levels(as.factor(data[[wave_var]]))))
+  
   names(new_data) <- wave_var
   
   probs <- predict(model, newdata = new_data, type = "response")
   
   plot_df <- as.data.frame(probs)
+  
   plot_df$Wave <- new_data[[wave_var]]
   
   plot_df_long <- tidyr::pivot_longer(
@@ -281,14 +299,11 @@ glm_pred_plot <- function(model, data, wave_var = "Wave") {
                            color = Response_Category, group = Response_Category)) +
     geom_line(linewidth = 1) +
     geom_point(shape =17 ,size = 2.5) +
+    scale_color_manual(values = likert_colors)+
     labs(title = "Predicted Probabilities Across Waves",
          x = "Wave", y = "Predicted Probability", color = "Response Category") +
     theme_classic() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
-
-
-
-
-
+##Probabilities table hardcoded in app server section itself 
