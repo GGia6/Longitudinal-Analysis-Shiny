@@ -191,10 +191,8 @@ glm_analysis<- function(data,
                         missing_codes = c(8,9, 98, 99)) {
   data[[outcome]][data[[outcome]] %in% missing_codes] <- NA
   
-  data[[outcome]] <- factor(
-    haven::as_factor(data[[outcome]]),
-    ordered = TRUE
-  )
+  data[[outcome]] <- haven::as_factor(data[[outcome]])
+  data[[outcome]] <- ordered(data[[outcome]])
   
   data[[wave]] <- haven::as_factor(data[[wave]])
   
@@ -307,3 +305,48 @@ glm_pred_plot <- function(model, data, wave_var = "Wave") {
 }
 
 ##Probabilities table hardcoded in app server section itself 
+
+oa_most_likely_from_table <- function(pred_table, variable_name) {
+  response_cols <- setdiff(names(pred_table), "Wave")
+  
+  sentences <- apply(pred_table, 1, function(row) {
+    prob_vals <- as.numeric(gsub("%", "", row[response_cols]))
+    top_cat <- response_cols[which.max(prob_vals)]
+    
+    top_cat_clean <- top_cat %>%
+      gsub("Probability\\.fit\\.", "", .) %>%
+      gsub("fit\\.", "", .) %>%
+      gsub("\\.", " ", .)
+    
+    sprintf("For the variable <b>%s</b> in %s the most likely outcome was <b>%s</b>.",
+            variable_name, row[["Wave"]], top_cat_clean)
+  })
+  
+  paste(sentences, collapse = "<br><br>")
+}
+
+
+vglm_most_likely_from_table <- function(pred_table, variable_name){
+  
+  response_cols <- setdiff(names(pred_table),"Wave")
+  
+  txt <- apply(pred_table,1,function(row){
+    
+    probs <- as.numeric(gsub("%","",row[response_cols]))
+    
+    best <- response_cols[which.max(probs)]
+    
+    sprintf(
+      "For the variable <b>%s</b> in %s the most likely outcome was <b>%s</b>.",
+      variable_name,
+      row[["Wave"]],
+      best
+    )
+    
+  })
+  
+  paste(txt,collapse="<br><br>")
+}
+
+
+
