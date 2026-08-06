@@ -1,3 +1,11 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    https://shiny.posit.co/
+#
 source("Functions.R")
 library(shiny)
 library(DT)
@@ -12,6 +20,8 @@ library(scales)
 library(bslib)
 library(viridis)
 library(shinycssloaders)
+library(grid)
+library(gridExtra)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -194,7 +204,8 @@ ui <- navbarPage(
                  style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
                  tags$strong("Note: "),
                  "Text Interpretations exclude all Wave:Response pairs that aren't statistically significant."
-               )),
+               ),
+               downloadButton("report", label = "Generate Report")),
              mainPanel(
                conditionalPanel(condition = "input.interprets == 'predi_plot'",
                                 withSpinner(plotOutput("predict_plot"), type = 8, color = "#D7191C"),
@@ -203,7 +214,9 @@ ui <- navbarPage(
                                 h4("Predicted Probability Metrics per Wave"),
                                 DT::dataTableOutput("predict_table")),
                conditionalPanel(condition = "input.interprets == 'text_int'",
-                                uiOutput("interpretation"))
+                                withSpinner(uiOutput("interpretation"), type = 8, color = "#D7191C"),
+                                hr(),
+                                uiOutput("most_likely_text"))
              )
            )
   )
@@ -696,14 +709,22 @@ server <- function(input, output, session) {
       req(ordinal_results())
 
       res <- ordinal_results()$results
+      model<- ordinal_results()$model
+      
+      levels_ord <- levels(model$y)
+      low_lab  <- levels_ord[1]
+      high_lab <- levels_ord[length(levels_ord)]
+      
       sig <- res %>% filter(p_value < 0.05)
 
       if (nrow(sig) == 0) {
         return("No statistically significant wave effects were found.")
       }
+      
+      sig<- sig %>% mutate(effect = abs(log(Odds_Ratio)))
 
-      top_row <- sig[which.max(sig$Odds_Ratio), ]
-      bottom_row <- sig[which.min(sig$Odds_Ratio), ]
+      top_row <- sig[which.max(sig$effect), ]
+      bottom_row <- sig[which.min(sig$effect), ]
 
       interpret_row <- function(row) {
         or <- round(row$Odds_Ratio, 2)
@@ -711,14 +732,14 @@ server <- function(input, output, session) {
         if (or < 1) {
           pct <- round((1 - or) * 100, 1)
           sprintf(
-            "In %s, the odds of being in a higher response category are %.2f times the baseline wave — the odds of being in a higher ordinal category (i.e. levels >2 or >3) decrease by about %.1f%%.",
-            wave, or, pct
+            "In %s, respondents were less likely to fall toward '%s' and more likely to fall toward '%s' — a %.1f%% shift in the odds toward more '%s' responses.",
+            wave, high_lab, low_lab, pct, low_lab
           )
         } else {
           pct <- round((or - 1) * 100, 1)
           sprintf(
-            "In %s, the odds of being in a higher response category are %.2f times the baseline wave — the odds of being in a higher ordinal category (i.e. levels >2 or >3) increase by about %.1f%%.",
-            wave, or, pct
+            "In %s, respondents were more likely to fall toward '%s' — a %.1f%% shift in the odds toward more '%s' responses.",
+            wave, high_lab, pct, high_lab
           )
         }
       }
@@ -734,32 +755,68 @@ server <- function(input, output, session) {
     } else {
       req(glm_results())
       tab <- glm_results()$vglm_table
-      sig <- tab %>% filter(p_value < 0.05)
-
+      glm_model <- glm_results()$model
+      
+      
+      # get the response labels from the uploaded data, not the vglm object
+      label_data <- df()
+      
+      label_data[[input$glm_var]][label_data[[input$glm_var]] %in% c(8, 9, 98, 99)] <- NA
+      
+      labelled_var <- haven::as_factor(label_data[[input$glm_var]])
+      
+      levels_ord <- levels(droplevels(labelled_var))
+      
+      low_lab <- levels_ord[1]
+      high_lab <- levels_ord[length(levels_ord)]
+      
+      sig <- tab %>% filter(p_value < 0.05, !grepl("Intercept", Predictor, ignore.case = TRUE))
+##Before i was getting largest/smallest OR but i changed it cus i actually want the largest and smallest effect magnitudes. 
       if (nrow(sig) == 0) {
-        return("No statistically significant wave effects were found.")
+        effect_text<- "No statistically significant wave effects were found."
+      } else {
+        sig <- sig %>% mutate(effect = abs(log(Odds_Ratio)))
       }
 
-      top_row <- sig[which.max(sig$Odds_Ratio), ]
-      bottom_row <- sig[which.min(sig$Odds_Ratio), ]
-
-      interpret_row <- function(row, direction) {
-        or <- round(row$Odds_Ratio, 2)
+      top_row <- sig[which.max(sig$effect), ]
+      bottom_row <- sig[which.min(sig$effect), ]
+## Write a small func to inteprret the rows 
+      interpret_row <- function(row) {
+        
+        or <- row$Odds_Ratio
         wave <- row$Predictor
-        trend <- if (direction == "higher") "a sharp decline" else "a sharp increase"
-        sprintf(
-          "In %s, the odds of choosing a  response level greater than this one were %.2f times %s than the baseline — 
-          by this Wave there was %s in people choosing this as their response.",
-          wave, or, direction, trend
-        )
+        wave <- sub(":\\d+$", "", wave)              # remove trailing :1, :2, etc.
+        wave <- sub("^Wave", "", wave)               # remove leading duplicate "Wave" prefix
+        wave <- trimws(wave) 
+        
+        if (or < 1) {
+          pct <- round((1 - or) * 100, 1)
+          sprintf(
+            "In Wave %s, respondents were less likely to respond toward '%s' and more likely to respond toward '%s' than in the baseline wave — a %.1f%% shift in the odds.",
+            wave,
+            high_lab,
+            low_lab,
+            pct
+          )
+        } else {
+          pct <- round((or - 1) * 100, 1)
+          sprintf(
+            "In  Wave %s, respondents were more likely to respond toward '%s' and less likely to respond toward '%s' than in the baseline wave — a %.1f%% increase in the odds (OR = %.2f).",
+            wave,
+            high_lab,
+            low_lab,
+            pct,
+            round(or, 2)
+          )
+        }
       }
 
       if (nrow(sig) == 1) {
-        interpret_row(sig, if (sig$Odds_Ratio >= 1) "higher" else "lower")
+        interpret_row(sig)
       } else {
         paste0(
-          "<b>Highest Significant Odds Ratio:</b> ", interpret_row(top_row, "higher"), "<br><br>",
-          "<b>Lowest Significant Odds Ratio:</b> ", interpret_row(bottom_row, "lower")
+          "<b>Largest Significant Effect:</b> ", interpret_row(top_row), "<br><br>",
+          "<b>Smallest Significant Effect:</b> ", interpret_row(bottom_row)
         )
       }
     }
@@ -841,8 +898,67 @@ server <- function(input, output, session) {
                ))
     })
   
+  output$most_likely_text <- renderUI({
+    
+    if (input$test_type == "OA") {
+      
+      req(predict_table_reactive())
+      HTML(oa_most_likely_from_table(
+        predict_table_reactive(),
+        input$analysis_var
+      ))
+      
+    } else {
+      
+      req(predict_table_reactive())
+      HTML(vglm_most_likely_from_table(
+        predict_table_reactive(),
+        input$glm_var
+      ))
+      
+    }
+    
+  })
   
+  ##Make downloadable markdown report 
   
+  output$report <- downloadHandler(
+    filename = function() {
+      var_name <- if (input$test_type == "OA") input$analysis_var else input$glm_var
+      paste0("Report_", input$test_type, "_", Sys.Date(), ".pdf")
+    },
+    content = function(file) {
+      plt <- isolate(predict_plot_reactive())
+      pdf(file, width = 8.5, height = 11)
+      on.exit(dev.off(), add = TRUE)
+      
+      grid.newpage()
+      title_text <- if (input$test_type == "OA") {
+        paste("Ordinal Analysis Report for", input$analysis_var)
+      } else {
+        paste("Generalized (VGLM) Report for", input$glm_var)
+      }
+      grid.text(title_text, gp = gpar(fontsize = 20, fontface = "bold"))
+      
+      if (input$test_type == "OA") {
+        grid.newpage(); grid.table(ordinal_results()$results, rows = NULL)
+        grid.newpage()
+        print(plt)
+        grid.newpage(); grid.table(predict_table_reactive(), rows = NULL)
+      } else {
+        grid.newpage(); grid.table(glm_results()$vglm_table, rows = NULL)
+        grid.newpage()
+        print(plt)
+        grid.newpage(); grid.table(predict_table_reactive(), rows = NULL)
+      }
+      
+      grid.newpage()
+      clean_text <- interpretation_reactive() %>%
+        gsub("<br><br>", "\n\n", .) %>%
+        gsub("<b>|</b>", "", .)
+      grid.text(clean_text, x = 0.05, y = 0.95, just = c("left", "top"), gp = gpar(fontsize = 11))
+    }
+  )
 
 
   
