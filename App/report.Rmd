@@ -10,6 +10,7 @@ params:
   plt: NA
   predict_table: NA
   interpretation: NA
+  Most_likely: NA
 ---
 
 ```{r setup, include=FALSE}
@@ -40,3 +41,11 @@ knitr::kable(params$predict_table)
 ```{r results='asis'}
 cat(params$interpretation)
 ```
+
+
+## Most Likely Responses per Wave 
+
+```{r results='asis'}
+cat(params$Most_likely)
+```
+
