@@ -207,6 +207,7 @@ ui <- navbarPage(
                  tags$strong("Note: "),
                  "Text Interpretations exclude all Wave:Response pairs that aren't statistically significant."
                ),
+               hr(),
                downloadButton("report", label = "Generate Report")),
              mainPanel(
                conditionalPanel(condition = "input.interprets == 'predi_plot'",
@@ -960,10 +961,21 @@ server <- function(input, output, session) {
         isolate(glm_results()$vglm_table)
       }
       
-      colnames(results_table) <- gsub(
+      
+      Most_likely<- if (input$test_type == "OA") {
+        isolate(oa_most_likely_from_table(predict_table_reactive(), input$analysis_var))
+      } else {
+        isolate(vglm_most_likely_from_table(predict_table_reactive(), input$glm_var))
+      }
+      
+      
+      
+      predict_table<- isolate(predict_table_reactive())
+      
+      colnames(predict_table) <- gsub(
         "Probability.fit\\.",
         "",
-        colnames(results_table)
+        colnames(predict_table)
       )
       
       # Create parameters
@@ -972,8 +984,11 @@ server <- function(input, output, session) {
         test_type = input$test_type,
         results_table = results_table,
         plt = isolate(predict_plot_reactive()),
-        predict_table = isolate(predict_table_reactive()),
+        predict_table = predict_table,
         interpretation = isolate(interpretation_reactive()) %>%
+          gsub("<br><br>", "\n\n", .) %>%
+          gsub("<b>|</b>", "", .),
+        Most_likely = Most_likely %>%
           gsub("<br><br>", "\n\n", .) %>%
           gsub("<b>|</b>", "", .)
       )
