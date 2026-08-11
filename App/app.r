@@ -22,6 +22,8 @@ library(viridis)
 library(shinycssloaders)
 library(grid)
 library(gridExtra)
+library(kableExtra)
+library(tinytex)
 ## Upload up to 50 MB
 options(shiny.maxRequestSize = 50 * 1024^2)
 
@@ -922,45 +924,92 @@ server <- function(input, output, session) {
   
   ##Make downloadable markdown report 
   
+  
+  
+  
+  ##ANother method for report generating 
+  
   output$report <- downloadHandler(
+    
     filename = function() {
-      var_name <- if (input$test_type == "OA") input$analysis_var else input$glm_var
-      paste0("Report_", input$test_type, "_", Sys.Date(), ".pdf")
+      paste0("report_", Sys.Date(), ".pdf")
     },
+    
     content = function(file) {
-      plt <- isolate(predict_plot_reactive())
-      pdf(file, width = 8.5, height = 11)
-      on.exit(dev.off(), add = TRUE)
       
-      grid.newpage()
+      # Copy Rmd to a temporary directory
+      tempReport <- file.path(tempdir(), "report.Rmd")
+      
+      file.copy(
+        "report.Rmd",
+        tempReport,
+        overwrite = TRUE
+      )
+      
+      # Create title
       title_text <- if (input$test_type == "OA") {
         paste("Ordinal Analysis Report for", input$analysis_var)
       } else {
         paste("Generalized (VGLM) Report for", input$glm_var)
       }
-      grid.text(title_text, gp = gpar(fontsize = 20, fontface = "bold"))
       
-      if (input$test_type == "OA") {
-        grid.newpage(); grid.table(ordinal_results()$results, rows = NULL)
-        grid.newpage()
-        print(plt)
-        grid.newpage(); grid.table(predict_table_reactive(), rows = NULL)
+      # Get results
+      results_table <- if (input$test_type == "OA") {
+        isolate(ordinal_results()$results)
       } else {
-        grid.newpage(); grid.table(glm_results()$vglm_table, rows = NULL)
-        grid.newpage()
-        print(plt)
-        grid.newpage(); grid.table(predict_table_reactive(), rows = NULL)
+        isolate(glm_results()$vglm_table)
       }
       
-      grid.newpage()
-      clean_text <- interpretation_reactive() %>%
-        gsub("<br><br>", "\n\n", .) %>%
-        gsub("<b>|</b>", "", .)
-      grid.text(clean_text, x = 0.05, y = 0.95, just = c("left", "top"), gp = gpar(fontsize = 11))
+      colnames(results_table) <- gsub(
+        "Probability.fit\\.",
+        "",
+        colnames(results_table)
+      )
+      
+      # Create parameters
+      params <- list(
+        title_text = title_text,
+        test_type = input$test_type,
+        results_table = results_table,
+        plt = isolate(predict_plot_reactive()),
+        predict_table = isolate(predict_table_reactive()),
+        interpretation = isolate(interpretation_reactive()) %>%
+          gsub("<br><br>", "\n\n", .) %>%
+          gsub("<b>|</b>", "", .)
+      )
+      
+      # Render PDF in temporary directory
+      output_dir <- tempdir()
+      
+      rmarkdown::render(
+        input = tempReport,
+        output_file = "report.pdf",
+        output_dir = output_dir,
+        output_format = "pdf_document",
+        params = params,
+        envir = new.env(parent = globalenv()),
+        quiet = TRUE
+      )
+      
+      # Find the generated PDF
+      rendered_pdf <- file.path(output_dir, "report.pdf")
+      
+      # Copy PDF to Shiny's download location
+      file.copy(
+        rendered_pdf,
+        file,
+        overwrite = TRUE
+      )
     }
   )
 
 
+
+
+  
+  
+  
+  
   
 }
 
