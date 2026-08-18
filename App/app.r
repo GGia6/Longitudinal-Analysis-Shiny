@@ -79,7 +79,9 @@ ui <- navbarPage(
         selectizeInput(inputId = "wave_filter", 
                        label = "Select Wave", 
                        choices = NULL,
-                       multiple = TRUE)
+                       multiple = TRUE),
+        selectizeInput(inputId = "multi_var", "Select Variable(s) of Interest [10 maximum]",
+                       choices = NULL, multiple = TRUE, options = list(maxItems = 10))
       ),
       mainPanel(
         h4("Dataset Information"),
@@ -109,6 +111,7 @@ ui <- navbarPage(
              ),
              mainPanel(
                h4("Wave Trends"),
+               uiOutput("question_lable"),
                withSpinner(plotOutput("stackedPlot"), type = 8, color = "#D7191C"),
                downloadButton("downloadStacked", "Download Plot"),
                br(),
@@ -150,6 +153,7 @@ ui <- navbarPage(
       ),
       
       mainPanel( 
+        uiOutput("ordinal_label"),
         withSpinner(DT::dataTableOutput("ordinal_table"), type = 8, color = "#D7191C"),
         hr(),
         h4("Proportional Odds Assumption Check"),
@@ -183,6 +187,7 @@ ui <- navbarPage(
                   Low Odds Ratios highlighted in blue."
                 )),
               mainPanel(
+                uiOutput("vglm_label"),
                 withSpinner(DT::dataTableOutput("glm_datatable"), type = 8, color = "#D7191C"),
                 hr(),
                 h4("Error Assumption Check"),
@@ -201,16 +206,24 @@ ui <- navbarPage(
                radioButtons(inputId = "interprets",
                             label = "Select Interpretation Type",
                             choices = c("Predictive plot"= "predi_plot",
-                                        "Text Interpretations" = "text_int")),
+                                        "Text Interpretations" = "text_int",
+                                        "Non-response Analysis" = "nan_resp")),
                tags$div(
                  style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
                  tags$strong("Note: "),
                  "Text Interpretations exclude all Wave:Response pairs that aren't statistically significant."
                ),
                hr(),
+               tags$div(
+                 style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+                 tags$strong("Note: "),
+                 "Non-response Analysis uses Wave(s) selected in 'Wave Comparison' to calculate if a significant difference exists between waves."
+               ),
+               hr(),
                downloadButton("report", label = "Generate Report")),
              mainPanel(
                conditionalPanel(condition = "input.interprets == 'predi_plot'",
+                                uiOutput("predict_plot_label"),
                                 withSpinner(plotOutput("predict_plot"), type = 8, color = "#D7191C"),
                                 downloadButton("downloadPlot", "Download Plot"),
                                 hr(),
@@ -219,7 +232,9 @@ ui <- navbarPage(
                conditionalPanel(condition = "input.interprets == 'text_int'",
                                 withSpinner(uiOutput("interpretation"), type = 8, color = "#D7191C"),
                                 hr(),
-                                uiOutput("most_likely_text"))
+                                uiOutput("most_likely_text")),
+               conditionalPanel(condition = "input.interprets == 'nan_resp'",
+                                withSpinner(uiOutput("nan_resp_test")), type = 8, color = "#D7191C")
              )
            )
   )
@@ -288,18 +303,42 @@ server <- function(input, output, session) {
     )
   })
   
+  observe({
+    req(df())
+    
+    updateSelectizeInput(session = session,
+                         inputId = "multi_var",
+                         choices = setdiff(names(df()), c("Wave", "IDNO")))
+  })
+  
+  
+  
   
   ## The element to preview the file on the data upload page
-  output$table <- renderDT({
+  filtered_df <- reactive({
     req(df())
     req(input$wave_filter)
+    req(input$multi_var)
 
-    filtered_df <- df() %>%
+    df() %>%
       filter(as_factor(Wave) %in% input$wave_filter) %>%
-      mutate(across(where(haven::is.labelled), haven::as_factor))
+      mutate(across(where(haven::is.labelled), haven::as_factor))%>%
+      select(any_of(c("Wave", input$multi_var)))
+  })
+  
+  filtered_df_raw <- reactive({
+    req(df(), input$wave_filter, input$multi_var)
+    df() %>%
+      filter(as_factor(Wave) %in% input$wave_filter) %>%
+      select(any_of(c("Wave", input$multi_var)))
+  })
+    ## Add in something to filter dataset by chosen interest input variables 
+    
+    
 
+  output$table<- renderDT ({ 
     datatable(
-      head(filtered_df, 1000),
+      head(filtered_df(), 1000),
       extensions = "Buttons",
       options = list(dom = "Bfrtip", buttons = list(
         list(
@@ -358,17 +397,33 @@ server <- function(input, output, session) {
     updateSelectizeInput(
       session = session,
       inputId = "variable",
-      choices = setdiff(names(df()), c("Wave", "IDNO"))
-    )
+      choices =  setdiff(names(filtered_df()), c("Wave")))
+    
   })
   # Code for plots and graphs
   
   okabe_ito <- c("#F8A798","#F9A25A",  "#D7191C", "#9FC7DE",
-                 "#2B7EB6", "#25418c", "#BCBCBC", "#858789")
+                 "#2B7EB6", "#25418c", "#BCBCBC", "#858789", "#F8A798", "red")
   
+  output$question_lable<- renderUI({
+    req(filtered_df(), input$multi_var, input$variable)
+    
+    label<- filtered_df()[[input$variable]] 
+    question<- attr(label, 'label')
+    
+    tags$div(
+      tags$br(),
+      tags$p(question)
+    )
+    
+    
+  })
+    
+    
+    
   stackedPlot_reactive <- reactive({
-    req(df(), input$Wave, input$variable, input$chart_type)
-    datawave <- df_labelled() %>%
+    req(filtered_df(), input$Wave, input$variable, input$chart_type)
+    datawave <- filtered_df() %>%
       filter(as_factor(Wave) %in% input$Wave)
     datawave$response <- datawave[[input$variable]]
 
@@ -492,9 +547,9 @@ server <- function(input, output, session) {
   ## Start of categorical analysis
   # Update categorical selectuon
   observe({
-    req(df())
+    req(filtered_df_raw())
 
-    ordinal_vars <- names(df())[sapply(df(), function(x) {
+    ordinal_vars <- names(filtered_df_raw())[sapply(filtered_df_raw(), function(x) {
       detect_var(x) == "categorical var"
     })]
     updateSelectInput(
@@ -510,13 +565,27 @@ server <- function(input, output, session) {
       selected = levels(haven::as_factor(df()$Wave))
     )
   })
+  
+  output$ordinal_label<- renderUI({
+    req(filtered_df_raw(), input$multi_var, input$analysis_var)
+    
+    label<- filtered_df_raw()[[input$analysis_var]] 
+    question<- attr(label, 'label')
+    
+    tags$div(
+      tags$br(),
+      tags$p(question)
+    )
+    
+    
+  })
   ## get ordinal analysis  results
   ordinal_results <- reactive({
-    req(df())
+    req(filtered_df_raw())
     req(input$analysis_var)
     req(input$Wave_cat)
     
-    datawave_cat <- df() %>%
+    datawave_cat <- filtered_df_raw() %>%
       filter(haven::as_factor(Wave) %in% input$Wave_cat)
     
     ordinal_analysis(
@@ -565,12 +634,15 @@ server <- function(input, output, session) {
   ## get brant test results
 
   brant_test <- reactive({
-    req(df())
-
+    req(filtered_df_raw())
+    req(input$Wave_cat)
     req(input$analysis_var)
+    
+    datawave_cat <- filtered_df_raw() %>%
+      filter(haven::as_factor(Wave) %in% input$Wave_cat)
 
     brant_func(
-      data = df(),
+      data = datawave_cat,
       outcome = input$analysis_var
     )
   })
@@ -590,9 +662,9 @@ server <- function(input, output, session) {
 
   ## VGLM Analysis reactive for sidebar
   observe({
-    req(df())
+    req(filtered_df_raw())
 
-    ordinal_vars <- names(df())[sapply(df(), function(x) {
+    ordinal_vars <- names(filtered_df_raw())[sapply(filtered_df_raw(), function(x) {
       detect_var(x) == "categorical var"
     })]
     updateSelectInput(
@@ -608,15 +680,29 @@ server <- function(input, output, session) {
       selected = levels(haven::as_factor(df()$Wave))
     )
   })
+  
+  output$vglm_label<- renderUI({
+    req(filtered_df(), input$multi_var, input$glm_var)
+    
+    label<- filtered_df()[[input$glm_var]] 
+    question<- attr(label, 'label')
+    
+    tags$div(
+      tags$br(),
+      tags$p(question)
+    )
+    
+    
+  })
 
   ## Doing the vglm analysis func
 
   glm_results <- reactive({
-    req(df())
+    req(filtered_df_raw())
     req(input$glm_var)
     req(input$glm_wave)
 
-    datawave_cat <- df() %>%
+    datawave_cat <- filtered_df_raw() %>%
       filter(haven::as_factor(Wave) %in% input$glm_wave)
 
     glm_analysis(
@@ -678,18 +764,34 @@ server <- function(input, output, session) {
     req(input$test_type)
     if (input$test_type == "OA") {
       req(ordinal_results(), input$Wave_cat)
-      filtered <- df_labelled() %>% filter(Wave %in% input$Wave_cat)
+      filtered <- filtered_df() %>% filter(Wave %in% input$Wave_cat)
       oa_pred_plot(model = ordinal_results()$model, data = filtered)
     } else {
       req(glm_results(), input$glm_wave)
-      filtered <- df_labelled() %>% filter(Wave %in% input$glm_wave)
+      filtered <- filtered_df() %>% filter(Wave %in% input$glm_wave)
       glm_pred_plot(model = glm_results()$model, data = filtered)
     }
   })
   
+  
+  
 
   output$predict_plot <- renderPlot({
     predict_plot_reactive()
+  })
+  
+  
+  output$predict_plot_label <- renderUI({
+    req(input$test_type)
+    var <- if (input$test_type == "OA") input$analysis_var else input$glm_var
+    req(filtered_df_raw(), var)
+    
+    question <- attr(filtered_df_raw()[[var]], "label")
+    
+    tags$div(
+      tags$br(),
+      tags$p(question)
+    )
   })
   ## Add download option for the predictive plot
   output$downloadPlot <- downloadHandler(
@@ -923,6 +1025,35 @@ server <- function(input, output, session) {
     
   })
   
+  nonresponse_test_reactive <- reactive({
+    req(missingSummary_reactive())
+    req(input$variable)
+    req(input$Wave)
+    
+    ms <- missingSummary_reactive()
+    
+    req(nrow(ms) >= 2) 
+    prop_test_result <- prop.test(ms$n_missing, ms$n_total)
+    
+    list(
+      prop_test = prop_test_result,
+      summary = ms %>% select(Wave, n_missing, n_total, pct_missing)
+    )
+  })
+  
+  output$nan_resp_test <- renderUI({
+    req(nonresponse_test_reactive())
+    res <- nonresponse_test_reactive()$prop_test
+    
+    tags$div(
+      tags$br(),
+      tags$p(sprintf(
+        "Test of equal nonresponse rates across waves: χ² = %.2f, df = %d, p = %.4f",
+        res$statistic, res$parameter, res$p.value
+      ))
+    )
+  })
+  
   ##Make downloadable markdown report 
   
   
@@ -954,6 +1085,12 @@ server <- function(input, output, session) {
         paste("Generalized (VGLM) Report for", input$glm_var)
       }
       
+      
+      question_text <- isolate({
+        var <- if (input$test_type == "OA") input$analysis_var else input$glm_var
+        attr(filtered_df_raw()[[var]], "label")
+      })
+      
       # Get results
       results_table <- if (input$test_type == "OA") {
         isolate(ordinal_results()$results)
@@ -982,6 +1119,7 @@ server <- function(input, output, session) {
       params <- list(
         title_text = title_text,
         test_type = input$test_type,
+        question = question_text,
         results_table = results_table,
         plt = isolate(predict_plot_reactive()),
         predict_table = predict_table,
@@ -1030,3 +1168,4 @@ server <- function(input, output, session) {
 
 # Run the application
 shinyApp(ui = ui, server = server)
+
