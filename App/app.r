@@ -105,7 +105,7 @@ ui <- navbarPage(
                radioButtons(
                  inputId = "chart_type",
                  label = "Select Graph Type",
-                 choices = c("Stacked Bar Graph" = "bar", "Line Graph"= "line", "Grouped Bar Graph"= "box"),
+                 choices = c("Stacked Bar Graph" = "bar", "Line Graph"= "line", "Grouped Graph"= "box"),
                  selected = "bar"
                ),
                hr(),
@@ -182,7 +182,7 @@ ui <- navbarPage(
         tags$div(
           style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
           tags$strong("Warning: "),
-          "For model accuracy, use Wave Comparison to deseleVariables for Batch Analysis (defaults to all selected)ct Wave(s) where survey question wasn't asked."
+          "For model accuracy, use Wave Comparison to deselect Variables for Batch Analysis (defaults to all selected) and Wave(s) where survey question wasn't asked."
         ),
         hr(),
         tags$div(
@@ -247,7 +247,7 @@ ui <- navbarPage(
                 tags$div(
                   style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
                   tags$strong("Note: "),
-                  "Significant p-vals highlighted in gray. High Odds Ratios highlighted in orange. 
+                  "Batch Analysis shows variables that produced the top 3 largest effects between responses. Significant p-vals highlighted in gray. High Odds Ratios highlighted in orange. 
                   Low Odds Ratios highlighted in blue."
                 )),
               mainPanel(
@@ -489,52 +489,156 @@ server <- function(input, output, session) {
     
     
   })
-    
-    
-    
   stackedPlot_reactive <- reactive({
     req(filtered_df(), input$Wave, input$variable, input$chart_type)
-    datawave <- filtered_df() %>%
-      filter(as_factor(Wave) %in% input$Wave)
-    datawave$response <- datawave[[input$variable]]
-
-    plotdf <- datawave %>%
-      group_by(Wave, response) %>%
-      summarise(n = n(), .groups = "drop") %>%
-      group_by(Wave) %>%
-      mutate(proportion = n / sum(n))
-
-    if (input$chart_type == "bar") {
-      ggplot(plotdf, aes(x = Wave, y = proportion, fill = response)) +
-        geom_bar(stat = "identity", position = "fill") +
-        scale_fill_manual(values = okabe_ito)+
-        labs( title = "Wave Response Trend: Stacked Histogram",
-          x = "Wave", y = "Proportion of Response",
-          fill = input$variable
+    var_type <- detect_var(filtered_df()[[input$variable]])
+    if (var_type == "numeric var") {
+      datawave <- filtered_df() %>%
+        filter(as_factor(Wave) %in% input$Wave)
+      if (input$chart_type == "box") {
+      return(
+        ggplot(
+          datawave,
+          aes(
+            x = as_factor(Wave),
+            y = .data[[input$variable]]
+          )
         ) +
-        theme_classic()
+          geom_boxplot() +
+          labs(
+            title = paste(
+              "Wave Comparison:",
+              input$variable
+            ),
+            x = "Wave",
+            y = input$variable
+          ) +
+          theme_classic()
+      )
     } else if (input$chart_type == "line") {
-      ggplot(plotdf, aes(x = Wave, y = proportion, color = response, group = response)) +
-        geom_line(linewidth = 1) +
-        geom_point(size = 2) +
-        scale_color_manual(values = okabe_ito) + 
-        labs( title = "Wave Response Trend: Line Graph",
-          x = "Wave",
-          y = "Proportion of Response",
-          color = input$variable
-        ) +
-        theme_classic()
-    } else if (input$chart_type == "box") {
-      ggplot(plotdf, aes(x = Wave, y = proportion, fill = factor(response))) +
-        geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-        scale_fill_manual(values = okabe_ito)+
-        labs( title = "Wave Response Trend: Grouped Bar Graph", 
-              x = "Wave", y = "Proportion of Response", fill = "Response") +
-        theme_classic()
-    }
-    ## create stacked bar plot of responses by wave, as well as line graph, include more plot types later suhc as box or scatterplot
-  })
+      numeric_summary <- datawave %>%
+        group_by(Wave) %>%
+        summarise(
+          mean = mean(
+            .data[[input$variable]],
+            na.rm = TRUE
+          ),
+          .groups = "drop"
+        )
 
+      return(
+        ggplot(
+          numeric_summary,
+          aes(
+            x = as_factor(Wave),
+            y = mean,
+            group = 1
+          )
+        ) +
+          geom_line(linewidth = 1) +
+          geom_point(size = 2) +
+          labs(
+            title = paste(
+              "Mean",
+              input$variable,
+              "by Wave"
+            ),
+            x = "Wave",
+            y = paste(
+              "Mean",
+              input$variable
+            )
+          ) +
+          theme_classic()
+      )
+    } else {
+      return(
+        ggplot() +
+          annotate(
+            "text",
+            x = 1,
+            y = 1,
+            label = paste(
+              input$variable,
+              "is numeric.",
+              "\nPlease use the Grouped Graph or Line Graph."
+            ),
+            size = 5
+          ) +
+          theme_void()
+      )
+    }
+  }
+
+  # ==========================================================
+  #  ORIGINAL CODE
+  # ==========================================================
+
+  datawave <- filtered_df() %>%
+    filter(as_factor(Wave) %in% input$Wave)
+
+  datawave$response <- datawave[[input$variable]]
+
+  plotdf <- datawave %>%
+    group_by(Wave, response) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(Wave) %>%
+    mutate(proportion = n / sum(n))
+
+  if (input$chart_type == "bar") {
+    ggplot(plotdf, aes(x = Wave, y = proportion, fill = response)) +
+      geom_bar(stat = "identity", position = "fill") +
+      scale_fill_manual(values = okabe_ito) +
+      labs(
+        title = "Wave Response Trend: Stacked Histogram",
+        x = "Wave",
+        y = "Proportion of Response",
+        fill = input$variable
+      ) +
+      theme_classic()
+  } else if (input$chart_type == "line") {
+    ggplot(
+      plotdf,
+      aes(
+        x = Wave,
+        y = proportion,
+        color = response,
+        group = response
+      )
+    ) +
+      geom_line(linewidth = 1) +
+      geom_point(size = 2) +
+      scale_color_manual(values = okabe_ito) +
+      labs(
+        title = "Wave Response Trend: Line Graph",
+        x = "Wave",
+        y = "Proportion of Response",
+        color = input$variable
+      ) +
+      theme_classic()
+  } else if (input$chart_type == "box") {
+    ggplot(
+      plotdf,
+      aes(
+        x = Wave,
+        y = proportion,
+        fill = factor(response)
+      )
+    ) +
+      geom_col(
+        position = position_dodge(width = 0.8),
+        width = 0.7
+      ) +
+      scale_fill_manual(values = okabe_ito) +
+      labs(
+        title = "Wave Response Trend: Grouped Bar Graph",
+        x = "Wave",
+        y = "Proportion of Response",
+        fill = "Response"
+      ) +
+      theme_classic()
+  }
+})
   ## Download Stacked plot
   output$stackedPlot <- renderPlot({
     stackedPlot_reactive()
