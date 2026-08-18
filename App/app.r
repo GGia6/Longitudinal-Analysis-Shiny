@@ -72,7 +72,7 @@ ui <- navbarPage(
         hr(),
         selectizeInput(
           inputId = "var_sum",
-          label = "Select Variable",
+          label = "Select Variable for Info Summary",
           choices = NULL
         ),
         hr(),
@@ -107,21 +107,54 @@ ui <- navbarPage(
                  label = "Select Graph Type",
                  choices = c("Stacked Bar Graph" = "bar", "Line Graph"= "line", "Grouped Bar Graph"= "box"),
                  selected = "bar"
+               ),
+               hr(),
+               radioButtons(
+                 inputId = "nan_resp",
+                 label = "Show Non-Response Analysis Results",
+                 choices = c("Yes" = "nan_show", "No" = "regular_show"),
+                 selected = "regular_show"
+                 
+               ),
+               hr(),
+               tags$div(
+                 style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
+                 tags$strong("Note: "),
+                 "Non-response Analysis uses Wave(s) selected in 'Wave Comparison' to calculate if a significant difference exists between waves."
                )
              ),
              mainPanel(
                h4("Wave Trends"),
                uiOutput("question_lable"),
-               withSpinner(plotOutput("stackedPlot"), type = 8, color = "#D7191C"),
+               withSpinner(
+                 plotOutput("stackedPlot"),
+                 type = 8,
+                 color = "#D7191C"
+               ),
                downloadButton("downloadStacked", "Download Plot"),
+               
                br(),
                hr(),
+               
+               # ALWAYS SHOW MISSINGNESS SUMMARY
                h4("Missingness Summary"),
-               DTOutput("missingSummary")
+               DTOutput("missingSummary"),
+               
+               br(),
+               hr(),
+               
+               # ONLY SHOW NON-RESPONSE RESULTS WHEN YES
+               conditionalPanel(
+                 condition = "input.nan_resp == 'nan_show'",
+                 h4("Non-Response Analysis"),
+                 withSpinner(
+                   uiOutput("nan_resp_test"),
+                   type = 8,
+                   color = "#D7191C")
+                 )
+               )
              )
-           )
-           
-  ),
+    ),
   #ordinal analy tab 
   tabPanel(
     "Ordinal Categorical Analysis",
@@ -129,7 +162,7 @@ ui <- navbarPage(
       
       sidebarPanel(
         
-        selectInput(
+       selectInput(
           "analysis_var",
           "Select Survey Question",
           choices = NULL),
@@ -137,31 +170,52 @@ ui <- navbarPage(
         selectInput("Wave_cat", "Select Wave(s) to Analyze",
                     choices = NULL,
                     multiple = TRUE),
+        hr(),
+        selectizeInput(
+          "batch_vars",
+          "",
+          choices = NULL, 
+          multiple = TRUE
+        ),
+        actionButton("runBatch", "Run Analysis on all selected Variables"),
+        hr(),
         tags$div(
           style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
           tags$strong("Warning: "),
-          "For model accuracy, use Wave Comparison to deselect Wave(s) where survey question wasn't asked."
+          "For model accuracy, use Wave Comparison to deseleVariables for Batch Analysis (defaults to all selected)ct Wave(s) where survey question wasn't asked."
         ),
         hr(),
         tags$div(
           style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
           tags$strong("Note: "),
-          "Significant p-vals highlighted in gray. High Odds Ratios highlighted in orange. 
-                  Low Odds Ratios highlighted in blue."
+          "Batch Analysis shows variables that produced the top 3 largest effects between responses. Significant p-vals highlighted in gray. High Odds Ratios highlighted in orange. 
+          Low Odds Ratios highlighted in blue."
         )
         
       ),
       
-      mainPanel( 
-        uiOutput("ordinal_label"),
-        withSpinner(DT::dataTableOutput("ordinal_table"), type = 8, color = "#D7191C"),
-        hr(),
-        h4("Proportional Odds Assumption Check"),
-        htmlOutput("brant_message")
+      mainPanel(
+        tabsetPanel(
+          tabPanel( "Single Variable", 
+                   uiOutput("ordinal_label"),
+                   withSpinner(DT::dataTableOutput("ordinal_table"),
+                               type = 8, color = "#D7191C"),
+                   hr(),
+                   h4("Proportional Odds Assumption Check"),
+                   htmlOutput("brant_message")),
+          tabPanel("Top 3 Variables (Batch)",
+                   h4("Batch Ordinal Analysis Table"),
+                   br(),
+                   withSpinner(DT::dataTableOutput("top_ordinal_table"),
+                               type = 8, color = "#D7191C"),
+                   hr(),
+                   h4("Proportional Odds Assumption Check — Top 3 Variables"),
+                   withSpinner(DT::dataTableOutput("batch_brant_table"), 
+                               type = 8, color = "#D7191C"))
+          )
+        )
       )
-    )
-    
-  ),
+    ),
   ## VGLM Analysis
   tabPanel( "Generalized Categorical Analysis",
             sidebarLayout(
@@ -174,6 +228,16 @@ ui <- navbarPage(
                             label = "Select Waves to Analyze",
                             choices = NULL,
                             multiple = TRUE),
+                hr(),
+                selectizeInput(
+                  inputId = "glm_batch",
+                  label = "Variables for Batch Analysis (defaults to all selected)",
+                  choices = NULL,
+                  multiple = TRUE
+                ),
+                actionButton("runGLMBatch",
+                             "Run VGLM Analysis on all selected Variables"),
+                hr(),
                 tags$div(
                   style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
                   tags$strong("Warning: "),
@@ -187,11 +251,27 @@ ui <- navbarPage(
                   Low Odds Ratios highlighted in blue."
                 )),
               mainPanel(
-                uiOutput("vglm_label"),
-                withSpinner(DT::dataTableOutput("glm_datatable"), type = 8, color = "#D7191C"),
-                hr(),
-                h4("Error Assumption Check"),
-                htmlOutput("glm_assum"))
+                tabsetPanel(
+                  tabPanel("Single Variable",
+                            uiOutput("vglm_label"),
+                            withSpinner(DT::dataTableOutput("glm_datatable"), type = 8, color = "#D7191C"),
+                            hr(),
+                            h4("Error Assumption Check"),
+                            htmlOutput("glm_assum")
+                           ),
+                  tabPanel("Top 3 Variables (Batch)",
+                           h4("Batch Ordinal Analysis Table"),
+                           br(),
+                           withSpinner(DT::dataTableOutput("top_glm_table"),
+                                       type = 8, color = "#D7191C"),
+                           hr(),
+                           h4("Proportional Odds Assumption Check — Top 3 Variables"),
+                           withSpinner(DT::dataTableOutput("batch_assum_table"), 
+                                       type = 8, color = "#D7191C")
+                           )
+                  ) 
+                )
+                
             )
   ),
   ##Plots and Interpretations Tab
@@ -206,18 +286,11 @@ ui <- navbarPage(
                radioButtons(inputId = "interprets",
                             label = "Select Interpretation Type",
                             choices = c("Predictive plot"= "predi_plot",
-                                        "Text Interpretations" = "text_int",
-                                        "Non-response Analysis" = "nan_resp")),
+                                        "Text Interpretations" = "text_int")),
                tags$div(
                  style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
                  tags$strong("Note: "),
                  "Text Interpretations exclude all Wave:Response pairs that aren't statistically significant."
-               ),
-               hr(),
-               tags$div(
-                 style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
-                 tags$strong("Note: "),
-                 "Non-response Analysis uses Wave(s) selected in 'Wave Comparison' to calculate if a significant difference exists between waves."
                ),
                hr(),
                downloadButton("report", label = "Generate Report")),
@@ -232,9 +305,7 @@ ui <- navbarPage(
                conditionalPanel(condition = "input.interprets == 'text_int'",
                                 withSpinner(uiOutput("interpretation"), type = 8, color = "#D7191C"),
                                 hr(),
-                                uiOutput("most_likely_text")),
-               conditionalPanel(condition = "input.interprets == 'nan_resp'",
-                                withSpinner(uiOutput("nan_resp_test")), type = 8, color = "#D7191C")
+                                uiOutput("most_likely_text"))
              )
            )
   )
@@ -288,7 +359,7 @@ server <- function(input, output, session) {
     updateSelectizeInput(
       session = session,
       inputId = "var_sum",
-      choices = names(df())
+      choices = setdiff(names(df()), c("Wave", "IDNO"))
     )
   })
 
@@ -557,6 +628,13 @@ server <- function(input, output, session) {
       inputId = "analysis_var",
       choices = ordinal_vars
     )
+    
+    updateSelectizeInput(
+      session = session,
+      inputId = "batch_vars",
+      choices = ordinal_vars,
+      selected = ordinal_vars
+    )
 
     updateSelectInput(
       session = session,
@@ -565,7 +643,7 @@ server <- function(input, output, session) {
       selected = levels(haven::as_factor(df()$Wave))
     )
   })
-  
+  ## When doing single var analysis showcase question being asked 
   output$ordinal_label<- renderUI({
     req(filtered_df_raw(), input$multi_var, input$analysis_var)
     
@@ -659,6 +737,99 @@ server <- function(input, output, session) {
   })
   ## Done with brant results
 
+  
+  ##Start of batch analysis 
+  
+  batch_results<- eventReactive(input$runBatch, {
+    req(filtered_df_raw())
+    req(input$batch_vars)
+    req(input$Wave_cat)
+    
+    datawave_cat <- filtered_df_raw() %>%
+      filter(haven::as_factor(Wave) %in% input$Wave_cat)
+    
+    all_results <- lapply(input$batch_vars, function(v) {
+      res <- tryCatch(
+        ordinal_analysis(data = datawave_cat, outcome = v),
+        error = function(e) NULL
+      )
+      if (is.null(res) || is.null(res$results) || nrow(res$results) == 0) return(NULL)
+      res$results %>% mutate(Variable = v, .before = 1)
+    })
+    
+    bind_rows(all_results)
+  })
+  
+  ## Rank variables by strongest significant effect, keep top 3
+  top_ordinal_results <- reactive({
+    req(batch_results())
+    n_top <- 3  # hardcoded per your request
+    
+    scored <- batch_results() %>%
+      filter(Odds_Ratio > 0) %>%  # guard against log(0) / log(negative)
+      mutate(effect_score = ifelse(p_value < 0.05, abs(log(Odds_Ratio)), NA_real_))
+    
+    ranking <- scored %>%
+      group_by(Variable) %>%
+      summarise(best_score = suppressWarnings(max(effect_score, na.rm = TRUE)), .groups = "drop") %>%
+      filter(is.finite(best_score)) %>%
+      arrange(desc(best_score)) %>%
+      slice_head(n = n_top)
+    
+    scored %>%
+      filter(Variable %in% ranking$Variable) %>%
+      left_join(ranking, by = "Variable") %>%
+      arrange(desc(best_score))
+  })
+  
+  output$top_ordinal_table <- DT::renderDataTable({
+    req(top_ordinal_results())
+    
+    datatable(top_ordinal_results() %>% select(-effect_score, -best_score),
+              extensions = "Buttons",
+              options = list(
+                dom = "Bfrtip", buttons = list(
+                  list(extend = "copy", exportOptions = list(modifier = list(page = "all"))),
+                  list(extend = "csv", exportOptions = list(modifier = list(page = "all"))),
+                  list(extend = "excel", exportOptions = list(modifier = list(page = "all"))),
+                  list(extend = "pdf", exportOptions = list(modifier = list(page = "all")))
+                ),
+                pageLength = 10,
+                scrollX = TRUE
+              )
+    ) %>%
+      formatStyle("Odds_Ratio",
+                  backgroundColor = styleInterval(5, c("white", "#F8A798"))) %>%
+      formatStyle("p_value", backgroundColor = styleInterval(0.05, c("#BCBCBC", "white"))) %>%
+      formatStyle("Odds_Ratio", backgroundColor = styleInterval(0.40, c("#9FC7DE", "white")))
+  })
+  
+  ## Brant test for just the top-3 surviving variables
+  batch_brant_results <- reactive({
+    req(filtered_df_raw(), top_ordinal_results(), input$Wave_cat)
+    
+    top_vars <- unique(top_ordinal_results()$Variable)
+    
+    datawave_cat <- filtered_df_raw() %>%
+      filter(haven::as_factor(Wave) %in% input$Wave_cat)
+    
+    results <- lapply(top_vars, function(v) {
+      res <- tryCatch(
+        brant_func(data = datawave_cat, outcome = v),
+        error = function(e) list(Error = paste("Brant test failed:", e$message))
+      )
+      tibble(Variable = v, Assumption_Check = if (is.null(res$Error)) NA_character_ else res$Error)
+    })
+    
+    bind_rows(results)
+  })
+  
+  output$batch_brant_table <- DT::renderDataTable({
+    req(batch_brant_results())
+    datatable(batch_brant_results(), rownames = FALSE,
+              options = list(dom = "t", pageLength = -1))
+  })
+  
 
   ## VGLM Analysis reactive for sidebar
   observe({
@@ -679,7 +850,14 @@ server <- function(input, output, session) {
       choices = levels(haven::as_factor(df()$Wave)),
       selected = levels(haven::as_factor(df()$Wave))
     )
-  })
+    
+    updateSelectizeInput(
+      session = session,
+      inputId = "glm_batch",
+      choices = ordinal_vars,
+      selected = ordinal_vars
+      )
+    })
   
   output$vglm_label<- renderUI({
     req(filtered_df(), input$multi_var, input$glm_var)
@@ -757,6 +935,193 @@ server <- function(input, output, session) {
       tags$p(glm_results()$Error)
     )
   })
+  
+  ##Starting vglm batch results 
+  
+  ## Start VGLM batch analysis
+  
+  glm_batch_results <- eventReactive(input$runGLMBatch, {
+    
+    req(filtered_df_raw())
+    req(input$glm_batch)
+    req(input$glm_wave)
+    
+    datawave_glm <- filtered_df_raw() %>%
+      filter(haven::as_factor(Wave) %in% input$glm_wave)
+    
+    all_results <- lapply(input$glm_batch, function(v) {
+      
+      res <- tryCatch(
+        glm_analysis(
+          data = datawave_glm,
+          outcome = v
+        ),
+        error = function(e) NULL
+      )
+      
+      if (
+        is.null(res) ||
+        is.null(res$vglm_table) ||
+        nrow(res$vglm_table) == 0
+      ) {
+        return(NULL)
+      }
+      
+      res$vglm_table %>%
+        mutate(
+          Variable = v,
+          .before = 1
+        )
+    })
+    
+    bind_rows(all_results)
+  })
+  
+  ## Rank variables by strongest significant VGLM effect
+  
+  top_glm_results <- reactive({
+    
+    req(glm_batch_results())
+    
+    n_top <- 3
+    
+    scored <- glm_batch_results() %>%
+      filter(Odds_Ratio > 0) %>%
+      mutate(
+        effect_score = ifelse(
+          p_value < 0.05,
+          abs(log(Odds_Ratio)),
+          NA_real_
+        )
+      )
+    
+  ranking <- scored %>%
+      group_by(Variable) %>%
+      summarise(
+        best_score = suppressWarnings(
+          max(effect_score, na.rm = TRUE)
+        ),
+        .groups = "drop"
+      ) %>%
+      filter(is.finite(best_score)) %>%
+      arrange(desc(best_score)) %>%
+      slice_head(n = n_top)
+    
+    scored %>%
+      filter(Variable %in% ranking$Variable) %>%
+      left_join(ranking, by = "Variable") %>%
+      arrange(desc(best_score))
+  })
+  
+  output$top_glm_table <- DT::renderDataTable({
+    
+    req(top_glm_results())
+    
+    datatable(
+      top_glm_results() %>%
+        select(-effect_score, -best_score),
+      
+      extensions = "Buttons",
+      
+      options = list(
+        dom = "Bfrtip",
+        
+        buttons = list(
+          list(
+            extend = "copy",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "csv",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "excel",
+            exportOptions = list(modifier = list(page = "all"))
+          ),
+          list(
+            extend = "pdf",
+            exportOptions = list(modifier = list(page = "all"))
+          )
+        ),
+        
+        pageLength = 10,
+        scrollX = TRUE
+      )
+    ) %>%
+      
+      formatStyle(
+        "Odds_Ratio",
+        backgroundColor = styleInterval(
+          5,
+          c("white", "#F8A798")
+        )
+      ) %>%
+      
+      formatStyle(
+        "p_value",
+        backgroundColor = styleInterval(
+          0.05,
+          c("#BCBCBC", "white")
+        )
+      ) %>%
+      
+      formatStyle(
+        "Odds_Ratio",
+        backgroundColor = styleInterval(
+          0.40,
+          c("#9FC7DE", "white")
+        )
+      )
+  })
+  
+  ##VGLM batch assumption datatable 
+  batch_assum_results <- reactive({
+    
+    req(top_glm_results())
+    
+    top_glm_results() %>%
+      group_by(Variable) %>%
+      summarise(
+        max_std_error = max(Std_Error, na.rm = TRUE),
+        assumption = ifelse(
+          is.finite(max_std_error) & max_std_error < 3,
+          "Assumption met: Standard errors are not inflated; no evidence of quasi-complete separation.",
+          "Assumption not met: Inflated standard errors may indicate quasi-complete separation."
+        ),
+        .groups = "drop"
+      ) %>%
+      select(
+        Variable,
+        Assumption_Check = assumption
+      )
+  })
+  
+  output$batch_assum_table <- DT::renderDataTable({
+    
+    req(batch_assum_results())
+    
+    datatable(
+      batch_assum_results(),
+      rownames = FALSE,
+      options = list(
+        dom = "t",
+        pageLength = -1,
+        scrollX = TRUE
+      )
+    ) %>%
+      formatStyle(
+        "Assumption_Check",
+        color = styleEqual(
+          c(
+            "Assumption met: Standard errors are not inflated; no evidence of quasi-complete separation.",
+            "Assumption not met: Inflated standard errors may indicate quasi-complete separation."
+          ),
+          c("black", "#D7191C")
+        )
+      )
+  })
+  
 
   ## Print predictive plot on interpret tab
 
@@ -1105,7 +1470,11 @@ server <- function(input, output, session) {
         isolate(vglm_most_likely_from_table(predict_table_reactive(), input$glm_var))
       }
       
-      
+      batch_results<- if (input$test_type == "OA"){
+        isolate(top_ordinal_results())
+      } else {
+        isolate(top_glm_results())
+      }
       
       predict_table<- isolate(predict_table_reactive())
       
@@ -1128,7 +1497,8 @@ server <- function(input, output, session) {
           gsub("<b>|</b>", "", .),
         Most_likely = Most_likely %>%
           gsub("<br><br>", "\n\n", .) %>%
-          gsub("<b>|</b>", "", .)
+          gsub("<b>|</b>", "", .),
+        batch_results = batch_results
       )
       
       # Render PDF in temporary directory
@@ -1168,4 +1538,3 @@ server <- function(input, output, session) {
 
 # Run the application
 shinyApp(ui = ui, server = server)
-
