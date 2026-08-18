@@ -20,9 +20,9 @@ All in-app statistics are calculated without the use of survey weights, which mi
 ---
 ## Tools & Technologies
 - **R** 
-- **Statistical methods: ** Ordinal Logistic Regression with Brant Test Assumption check, Vector Generalized Linear Modeling, Exploratory Data Analysis, Non-response Analysis (Chi-Square Testing)
+- **Statistical methods:** Ordinal Logistic Regression with Brant Test Assumption check, Vector Generalized Linear Modeling, Exploratory Data Analysis, Non-response Analysis (Chi-Square Testing)
 - **GitHub** (code and project documentation)
-- **Packages**: shiny, dplyr, tidyverse, brms, emmeans, ggplot2, ordinal, gofcat, periscope2, VGAM, haven, scales, bslib, shinycssloaders, DT, tinytex, kableExtra, grid/gridExtra
+- **Packages:** shiny, dplyr, tidyverse, brms, emmeans, ggplot2, ordinal, gofcat, periscope2, VGAM, haven, scales, bslib, shinycssloaders, DT, tinytex, kableExtra, grid/gridExtra
 ---
 
 ## Project Components
