@@ -730,14 +730,14 @@ server <- function(input, output, session) {
     updateSelectInput(
       session = session,
       inputId = "analysis_var",
-      choices = ordinal_vars
+      choices = setdiff(ordinal_vars, "Wave")
     )
     
     updateSelectizeInput(
       session = session,
       inputId = "batch_vars",
       choices = ordinal_vars,
-      selected = ordinal_vars
+      selected = setdiff(ordinal_vars, "Wave")
     )
 
     updateSelectInput(
@@ -945,7 +945,7 @@ server <- function(input, output, session) {
     updateSelectInput(
       session = session,
       inputId = "glm_var",
-      choices = ordinal_vars
+      choices = setdiff(ordinal_vars, "Wave")
     )
 
     updateSelectInput(
@@ -959,7 +959,7 @@ server <- function(input, output, session) {
       session = session,
       inputId = "glm_batch",
       choices = ordinal_vars,
-      selected = ordinal_vars
+      selected = setdiff(ordinal_vars, "Wave")
       )
     })
   
